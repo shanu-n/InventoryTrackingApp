@@ -23,6 +23,7 @@ const { width } = Dimensions.get('window');
 const ITEM_WIDTH = (width - 48) / 2; // 2 columns with margins
 
 const InventoryScreen = ({ navigation }) => {
+  const [screenReady, setScreenReady] = useState(false);
   const [items, setItems] = useState([]);
   const [filteredItems, setFilteredItems] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,24 +51,31 @@ const InventoryScreen = ({ navigation }) => {
     filterItems();
   }, [searchQuery, items]);
 
-  const initializeScreen = () => {
-    const currentUser = authService.getCurrentUser();
-    setUser(currentUser);
-    
-    // Animate screen entrance
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
+  const initializeScreen = async () => {
+    const currentUser = await authService.getCurrentUser();
+    if (currentUser) {
+      setUser(currentUser);
+      
+      // Wait for animation before showing UI
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setScreenReady(true); // Only mark screen as ready after animation completes
+      });
+    } else {
+      setUser(null);
+      setScreenReady(true); // Still allow screen to load if no user (but maybe route back to login)
+    }
+  };  
 
   const loadInventoryItems = async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
@@ -423,7 +431,7 @@ const InventoryScreen = ({ navigation }) => {
     </Animated.View>
   );
 
-  if (loading) {
+  if (!screenReady || loading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -432,7 +440,7 @@ const InventoryScreen = ({ navigation }) => {
         </View>
       </SafeAreaView>
     );
-  }
+  }  
 
   return (
     <SafeAreaView style={styles.container}>

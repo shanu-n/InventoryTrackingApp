@@ -34,7 +34,8 @@ export default function App() {
           component={InventoryScreen}
           options={{ 
             title: 'My Inventory',
-            headerLeft: () => null, // Prevent going back to login
+            headerLeft: () => null, // Disable back button
+            gestureEnabled: false,  // Optional: disables swipe back
           }}
         />
         <Stack.Screen 
