@@ -75,6 +75,7 @@ const InventoryScreen = ({ navigation }) => {
       setUser(null);
       setScreenReady(true); // Still allow screen to load if no user (but maybe route back to login)
     }
+    await loadInventoryItems();
   };  
 
   const loadInventoryItems = async (showRefresh = false) => {
@@ -173,8 +174,9 @@ const InventoryScreen = ({ navigation }) => {
             try {
               const result = await inventoryService.deleteItem(item.id);
               if (result.success) {
-                // Remove from local state
-                setItems(prevItems => prevItems.filter(i => i.id !== item.id));
+                const updatedItems = items.filter(i => i.id !== item.id);
+                setItems(updatedItems);
+                setFilteredItems(updatedItems); // <-- This line was missing
                 Alert.alert('Success', 'Item deleted successfully');
               } else {
                 Alert.alert('Error', result.error || 'Failed to delete item');
@@ -186,7 +188,7 @@ const InventoryScreen = ({ navigation }) => {
         },
       ]
     );
-  };
+  };  
 
   const handleMenuOption = (option) => {
     setShowMenu(false);
@@ -194,26 +196,6 @@ const InventoryScreen = ({ navigation }) => {
     switch (option) {
       case 'refresh':
         loadInventoryItems(true);
-        break;
-      case 'clearData':
-        Alert.alert(
-          'Clear All Data',
-          'This will delete all your inventory items. This action cannot be undone.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Clear All',
-              style: 'destructive',
-              onPress: async () => {
-                const result = await inventoryService.clearAllData();
-                if (result.success) {
-                  setItems([]);
-                  Alert.alert('Success', 'All inventory data cleared');
-                }
-              },
-            },
-          ]
-        );
         break;
       case 'stats':
         showInventoryStats();
@@ -311,13 +293,6 @@ const InventoryScreen = ({ navigation }) => {
             <Ionicons name="stats-chart-outline" size={20} color="#475569" />
             <Text style={styles.dropdownText}>Statistics</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.dropdownItem, styles.dropdownItemDanger]}
-            onPress={() => handleMenuOption('clearData')}
-          >
-            <Ionicons name="trash-outline" size={20} color="#ef4444" />
-            <Text style={[styles.dropdownText, styles.dropdownTextDanger]}>Clear All Data</Text>
-          </TouchableOpacity>
         </View>
       )}
 
@@ -329,7 +304,7 @@ const InventoryScreen = ({ navigation }) => {
             placeholder="Search items..."
             placeholderTextColor="#94a3b8"
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChangeText={text => setSearchQuery(text)}
             returnKeyType="search"
           />
           {searchQuery ? (
@@ -444,27 +419,33 @@ const InventoryScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <TouchableOpacity 
-        style={styles.overlay}
-        activeOpacity={1}
-        onPress={() => setShowMenu(false)}
-        disabled={!showMenu}
-      >
-        <FlatList
-          data={filteredItems}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id.toString()}
-          numColumns={2}
-          ListHeaderComponent={renderHeader}
-          ListEmptyComponent={renderEmptyState}
-          contentContainerStyle={styles.listContainer}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-          }
-          columnWrapperStyle={filteredItems.length > 0 ? styles.row : null}
+      {showMenu && (
+        <TouchableOpacity
+          style={styles.overlay}
+          activeOpacity={1}
+          onPress={() => setShowMenu(false)}
         />
-      </TouchableOpacity>
+      )}
+      
+      <FlatList
+        data={filteredItems}
+        renderItem={renderItem}
+        keyExtractor={(item) => item.id.toString()}
+        numColumns={2}
+        ListHeaderComponent={<View>{renderHeader()}</View>} // Wrap in <View> to avoid layout conflict
+        ListEmptyComponent={renderEmptyState}
+        contentContainerStyle={{
+          paddingHorizontal: 16,
+          paddingBottom: 20,
+          paddingTop: 20,
+          minHeight: '100%', // Ensures scroll area fills screen
+        }}
+        columnWrapperStyle={filteredItems.length > 0 ? styles.row : null}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+      />
     </SafeAreaView>
   );
 };
@@ -475,7 +456,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   overlay: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 999,
   },
   loadingContainer: {
     flex: 1,
@@ -488,8 +474,8 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
   listContainer: {
-    flexGrow: 1,
     paddingHorizontal: 16,
+    paddingBottom: 20,
   },
   header: {
     paddingVertical: 20,
@@ -549,19 +535,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  dropdownItemDanger: {
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
-    marginTop: 4,
-  },
   dropdownText: {
     marginLeft: 12,
     fontSize: 16,
     color: '#475569',
     fontWeight: '500',
-  },
-  dropdownTextDanger: {
-    color: '#ef4444',
   },
   searchContainer: {
     flexDirection: 'row',
@@ -688,6 +666,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 60,
+    minHeight: 400,
   },
   emptyTitle: {
     fontSize: 24,
