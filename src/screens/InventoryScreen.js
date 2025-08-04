@@ -132,8 +132,8 @@ const InventoryScreen = ({ navigation }) => {
         { 
           text: 'Edit', 
           onPress: () => {
-            // Navigate to edit screen (we'll implement this later)
-            Alert.alert('Edit Item', 'Edit functionality will be added soon!');
+            // Navigate to EditItemScreen with the item data
+            navigation.navigate('EditItemScreen', { item });
           }
         },
         {
