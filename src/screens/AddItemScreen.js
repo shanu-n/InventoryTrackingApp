@@ -1,31 +1,818 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  SafeAreaView,
+  TouchableOpacity,
+  Alert,
+  Modal,
+  TextInput,
+  ScrollView,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Animated,
+  ActivityIndicator,
+} from 'react-native';
+import { Camera } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
+import inventoryService from '../services/inventoryService';
 
 const AddItemScreen = ({ navigation }) => {
+  // Camera and image states
+  const [hasCameraPermission, setHasCameraPermission] = useState(null);
+  const [hasGalleryPermission, setHasGalleryPermission] = useState(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [capturedImage, setCapturedImage] = useState(null);
+  const [showImageOptions, setShowImageOptions] = useState(true);
+  const [showConfirmImage, setShowConfirmImage] = useState(false);
+  const [showItemForm, setShowItemForm] = useState(false);
+  const [cameraType, setCameraType] = useState(Camera.Constants.Type.back);
+  const [loading, setLoading] = useState(false);
+  const [processingImage, setProcessingImage] = useState(false);
+  
+  // Form states
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    item_id: '',
+    vendor: '',
+    manufacture_date: '',
+  });
+  const [errors, setErrors] = useState({});
+  
+  // Refs and animations
+  const cameraRef = useRef(null);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+
+  useEffect(() => {
+    getPermissions();
+    animateIn();
+  }, []);
+
+  const animateIn = () => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const getPermissions = async () => {
+    const cameraStatus = await Camera.requestCameraPermissionsAsync();
+    setHasCameraPermission(cameraStatus.status === 'granted');
+    
+    const galleryStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    setHasGalleryPermission(galleryStatus.status === 'granted');
+  };
+
+  const handleTakePhoto = () => {
+    if (!hasCameraPermission) {
+      Alert.alert('Permission Required', 'Camera permission is required to take photos.');
+      return;
+    }
+    setShowImageOptions(false);
+    setShowCamera(true);
+  };
+
+  const handleUploadPhoto = async () => {
+    if (!hasGalleryPermission) {
+      Alert.alert('Permission Required', 'Gallery permission is required to upload photos.');
+      return;
+    }
+
+    setProcessingImage(true);
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        setCapturedImage(result.assets[0].uri);
+        setShowImageOptions(false);
+        setShowConfirmImage(true);
+      }
+    } catch (error) {
+      console.error('Image picker error:', error);
+      Alert.alert('Error', 'Failed to pick image from gallery');
+    } finally {
+      setProcessingImage(false);
+    }
+  };
+
+  const takePicture = async () => {
+    if (cameraRef.current) {
+      try {
+        const photo = await cameraRef.current.takePictureAsync({
+          quality: 0.8,
+          base64: false,
+        });
+        setCapturedImage(photo.uri);
+        setShowCamera(false);
+        setShowConfirmImage(true);
+      } catch (error) {
+        Alert.alert('Error', 'Failed to take picture');
+      }
+    }
+  };
+
+  const retakePicture = () => {
+    setCapturedImage(null);
+    setShowConfirmImage(false);
+    setShowImageOptions(true);
+  };
+
+  const confirmImage = () => {
+    setShowConfirmImage(false);
+    setShowItemForm(true);
+  };
+
+  const validateForm = () => {
+    const newErrors = {};
+
+    if (!formData.title.trim()) newErrors.title = 'Title is required';
+    if (!formData.description.trim()) newErrors.description = 'Description is required';
+    if (!formData.item_id.trim()) newErrors.item_id = 'Item ID is required';
+    if (!formData.vendor.trim()) newErrors.vendor = 'Vendor is required';
+    if (!formData.manufacture_date.trim()) newErrors.manufacture_date = 'Manufacture date is required';
+
+    // Validate date format (YYYY-MM-DD)
+    if (formData.manufacture_date && !/^\d{4}-\d{2}-\d{2}$/.test(formData.manufacture_date)) {
+      newErrors.manufacture_date = 'Date must be in YYYY-MM-DD format';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSaveItem = async () => {
+    if (!validateForm()) {
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const itemData = {
+        ...formData,
+        image_url: capturedImage,
+      };
+
+      const result = await inventoryService.addItem(itemData);
+
+      if (result.success) {
+        Alert.alert(
+          'Success',
+          'Item added successfully!',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Reset all states before navigation
+                setShowItemForm(false);
+                setShowConfirmImage(false);
+                setShowImageOptions(true);
+                setCapturedImage(null);
+                setFormData({
+                  title: '',
+                  description: '',
+                  item_id: '',
+                  vendor: '',
+                  manufacture_date: '',
+                });
+                setErrors({});
+                navigation.goBack();
+              },
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Error', result.error || 'Failed to add item');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Something went wrong while saving the item');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBackToImageOptions = () => {
+    setShowConfirmImage(false);
+    setShowItemForm(false);
+    setShowImageOptions(true);
+    setCapturedImage(null);
+  };
+
+  const handleClose = () => {
+    // Reset all states before closing
+    setShowCamera(false);
+    setShowConfirmImage(false);
+    setShowItemForm(false);
+    setShowImageOptions(true);
+    setCapturedImage(null);
+    setFormData({
+      title: '',
+      description: '',
+      item_id: '',
+      vendor: '',
+      manufacture_date: '',
+    });
+    setErrors({});
+    navigation.goBack();
+  };
+
+  const renderImageOptions = () => (
+    <Modal visible={showImageOptions} transparent animationType="slide">
+      <View style={styles.modalContainer}>
+        <Animated.View 
+          style={[
+            styles.imageOptionsModal,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
+        >
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Add Item Photo</Text>
+            <TouchableOpacity onPress={handleClose}>
+              <Ionicons name="close" size={24} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.modalSubtitle}>
+            Choose how you'd like to add a photo for your inventory item
+          </Text>
+
+          {processingImage && (
+            <View style={styles.processingContainer}>
+              <ActivityIndicator size="small" color="#2563eb" />
+              <Text style={styles.processingText}>Processing image...</Text>
+            </View>
+          )}
+
+          <View style={styles.optionsContainer}>
+            <TouchableOpacity 
+              style={[styles.optionButton, processingImage && styles.optionButtonDisabled]} 
+              onPress={handleTakePhoto}
+              disabled={processingImage}
+            >
+              <View style={styles.optionIcon}>
+                <Ionicons name="camera" size={32} color="#2563eb" />
+              </View>
+              <Text style={styles.optionTitle}>Take Photo</Text>
+              <Text style={styles.optionDescription}>Use your camera to capture the item</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.optionButton, processingImage && styles.optionButtonDisabled]} 
+              onPress={handleUploadPhoto}
+              disabled={processingImage}
+            >
+              <View style={styles.optionIcon}>
+                <Ionicons name="images" size={32} color="#2563eb" />
+              </View>
+              <Text style={styles.optionTitle}>Upload Photo</Text>
+              <Text style={styles.optionDescription}>Choose from your photo gallery</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+
+  const renderCamera = () => (
+    <Modal visible={showCamera} animationType="slide">
+      <SafeAreaView style={styles.cameraContainer}>
+        <Camera
+          ref={cameraRef}
+          style={styles.camera}
+          type={cameraType}
+          ratio="4:3"
+        >
+          <View style={styles.cameraOverlay}>
+            <View style={styles.cameraHeader}>
+              <TouchableOpacity
+                style={styles.cameraButton}
+                onPress={() => {
+                  setShowCamera(false);
+                  setShowImageOptions(true);
+                }}
+              >
+                <Ionicons name="close" size={24} color="#ffffff" />
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.cameraButton}
+                onPress={() => {
+                  setCameraType(
+                    cameraType === Camera.Constants.Type.back
+                      ? Camera.Constants.Type.front
+                      : Camera.Constants.Type.back
+                  );
+                }}
+              >
+                <Ionicons name="camera-reverse" size={24} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.cameraFooter}>
+              <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
+                <View style={styles.captureButtonInner} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Camera>
+      </SafeAreaView>
+    </Modal>
+  );
+
+  const renderConfirmImage = () => (
+    <Modal visible={showConfirmImage} transparent animationType="slide">
+      <View style={styles.modalContainer}>
+        <Animated.View style={[styles.confirmModal, { opacity: fadeAnim }]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Confirm Photo</Text>
+            <TouchableOpacity onPress={handleBackToImageOptions}>
+              <Ionicons name="close" size={24} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.imagePreviewContainer}>
+            <Image source={{ uri: capturedImage }} style={styles.imagePreview} />
+          </View>
+
+          <Text style={styles.confirmText}>
+            Is this the photo you want to use for your inventory item?
+          </Text>
+
+          <View style={styles.confirmButtons}>
+            <TouchableOpacity style={styles.retakeButton} onPress={retakePicture}>
+              <Ionicons name="camera" size={20} color="#64748b" />
+              <Text style={styles.retakeButtonText}>Retake</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.confirmButton} onPress={confirmImage}>
+              <Ionicons name="checkmark" size={20} color="#ffffff" />
+              <Text style={styles.confirmButtonText}>Use Photo</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+
+  const renderItemForm = () => (
+    <Modal visible={showItemForm} animationType="slide">
+      <SafeAreaView style={styles.formContainer}>
+        <KeyboardAvoidingView 
+          style={styles.formKeyboardView}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.formHeader}>
+            <TouchableOpacity onPress={() => {
+              setShowItemForm(false);
+              setShowConfirmImage(true);
+            }}>
+              <Ionicons name="arrow-back" size={24} color="#64748b" />
+            </TouchableOpacity>
+            <Text style={styles.formTitle}>Add Item Details</Text>
+            <View style={{ width: 24 }} />
+          </View>
+
+          <ScrollView style={styles.formScrollView} showsVerticalScrollIndicator={false}>
+            <View style={styles.imagePreviewContainer}>
+              <Image source={{ uri: capturedImage }} style={styles.formImagePreview} />
+            </View>
+
+            <View style={styles.formSection}>
+              <Text style={styles.sectionTitle}>Item Information</Text>
+              
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Item Title *</Text>
+                <TextInput
+                  style={[styles.textInput, errors.title && styles.inputError]}
+                  value={formData.title}
+                  onChangeText={(text) => setFormData({ ...formData, title: text })}
+                  placeholder="Enter item title"
+                  placeholderTextColor="#94a3b8"
+                />
+                {errors.title && <Text style={styles.errorText}>{errors.title}</Text>}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Description *</Text>
+                <TextInput
+                  style={[styles.textInput, styles.textArea, errors.description && styles.inputError]}
+                  value={formData.description}
+                  onChangeText={(text) => setFormData({ ...formData, description: text })}
+                  placeholder="Enter item description"
+                  placeholderTextColor="#94a3b8"
+                  multiline
+                  numberOfLines={3}
+                />
+                {errors.description && <Text style={styles.errorText}>{errors.description}</Text>}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Item ID *</Text>
+                <TextInput
+                  style={[styles.textInput, errors.item_id && styles.inputError]}
+                  value={formData.item_id}
+                  onChangeText={(text) => setFormData({ ...formData, item_id: text })}
+                  placeholder="Enter unique item ID"
+                  placeholderTextColor="#94a3b8"
+                />
+                {errors.item_id && <Text style={styles.errorText}>{errors.item_id}</Text>}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Vendor *</Text>
+                <TextInput
+                  style={[styles.textInput, errors.vendor && styles.inputError]}
+                  value={formData.vendor}
+                  onChangeText={(text) => setFormData({ ...formData, vendor: text })}
+                  placeholder="Enter vendor name"
+                  placeholderTextColor="#94a3b8"
+                />
+                {errors.vendor && <Text style={styles.errorText}>{errors.vendor}</Text>}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Manufacture Date *</Text>
+                <TextInput
+                  style={[styles.textInput, errors.manufacture_date && styles.inputError]}
+                  value={formData.manufacture_date}
+                  onChangeText={(text) => setFormData({ ...formData, manufacture_date: text })}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor="#94a3b8"
+                />
+                {errors.manufacture_date && <Text style={styles.errorText}>{errors.manufacture_date}</Text>}
+              </View>
+            </View>
+          </ScrollView>
+
+          <View style={styles.formFooter}>
+            <TouchableOpacity 
+              style={[styles.saveButton, loading && styles.saveButtonDisabled]} 
+              onPress={handleSaveItem}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark" size={20} color="#ffffff" />
+                  <Text style={styles.saveButtonText}>Save Item</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </Modal>
+  );
+
+  if (hasCameraPermission === null || hasGalleryPermission === null) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2563eb" />
+          <Text style={styles.loadingText}>Requesting permissions...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Add Item Screen</Text>
-      <Text style={styles.subtitle}>We'll build this soon!</Text>
-    </View>
+    <SafeAreaView style={styles.container}>
+      {renderImageOptions()}
+      {renderCamera()}
+      {renderConfirmImage()}
+      {renderItemForm()}
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: '#f8fafc',
   },
-  title: {
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#64748b',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  imageOptionsModal: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 40,
+    minHeight: 400,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#1e293b',
-    marginBottom: 8,
   },
-  subtitle: {
+  modalSubtitle: {
     fontSize: 16,
     color: '#64748b',
+    lineHeight: 22,
+    marginBottom: 32,
+  },
+  processingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    marginBottom: 16,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 12,
+  },
+  processingText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#64748b',
+  },
+  optionsContainer: {
+    gap: 16,
+  },
+  optionButton: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
+  },
+  optionButtonDisabled: {
+    opacity: 0.5,
+  },
+  optionIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#dbeafe',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  optionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginBottom: 4,
+  },
+  optionDescription: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  cameraContainer: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  camera: {
+    flex: 1,
+  },
+  cameraOverlay: {
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  cameraHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 16,
+  },
+  cameraButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cameraFooter: {
+    alignItems: 'center',
+    paddingBottom: 40,
+  },
+  captureButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 4,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  captureButtonInner: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#ffffff',
+  },
+  confirmModal: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 40,
+    minHeight: 500,
+  },
+  imagePreviewContainer: {
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  imagePreview: {
+    width: 200,
+    height: 200,
+    borderRadius: 16,
+    backgroundColor: '#f1f5f9',
+  },
+  confirmText: {
+    fontSize: 16,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 32,
+  },
+  confirmButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  retakeButton: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  retakeButtonText: {
+    marginLeft: 8,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  confirmButton: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    backgroundColor: '#2563eb',
+  },
+  confirmButtonText: {
+    marginLeft: 8,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  formContainer: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  formKeyboardView: {
+    flex: 1,
+  },
+  formHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  formTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  formScrollView: {
+    flex: 1,
+    paddingHorizontal: 24,
+  },
+  formImagePreview: {
+    width: 120,
+    height: 120,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    marginVertical: 20,
+  },
+  formSection: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginBottom: 16,
+  },
+  inputContainer: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  textInput: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#1e293b',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  inputError: {
+    borderColor: '#ef4444',
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#ef4444',
+    marginTop: 4,
+  },
+  formFooter: {
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  saveButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#2563eb',
+    paddingVertical: 16,
+    borderRadius: 12,
+    shadowColor: '#2563eb',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  saveButtonDisabled: {
+    backgroundColor: '#94a3b8',
+  },
+  saveButtonText: {
+    marginLeft: 8,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
   },
 });
 

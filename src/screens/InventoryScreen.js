@@ -23,7 +23,6 @@ const { width } = Dimensions.get('window');
 const ITEM_WIDTH = (width - 48) / 2; // 2 columns with margins
 
 const InventoryScreen = ({ navigation }) => {
-  const [screenReady, setScreenReady] = useState(false);
   const [items, setItems] = useState([]);
   const [filteredItems, setFilteredItems] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -32,9 +31,9 @@ const InventoryScreen = ({ navigation }) => {
   const [user, setUser] = useState(null);
   const [showMenu, setShowMenu] = useState(false);
   
-  // Animation values
-  const fadeAnim = useState(new Animated.Value(0))[0];
-  const slideAnim = useState(new Animated.Value(30))[0];
+  // Animation values - simplified to avoid issues
+  const fadeAnim = useState(new Animated.Value(1))[0]; // Start visible
+  const slideAnim = useState(new Animated.Value(0))[0]; // Start in position
 
   useEffect(() => {
     initializeScreen();
@@ -52,31 +51,15 @@ const InventoryScreen = ({ navigation }) => {
   }, [searchQuery, items]);
 
   const initializeScreen = async () => {
-    const currentUser = await authService.getCurrentUser();
-    if (currentUser) {
+    try {
+      const currentUser = await authService.getCurrentUser();
       setUser(currentUser);
-      
-      // Wait for animation before showing UI
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        setScreenReady(true); // Only mark screen as ready after animation completes
-      });
-    } else {
-      setUser(null);
-      setScreenReady(true); // Still allow screen to load if no user (but maybe route back to login)
+      await loadInventoryItems();
+    } catch (error) {
+      console.error('Error initializing screen:', error);
+      setLoading(false);
     }
-    await loadInventoryItems();
-  };  
+  };
 
   const loadInventoryItems = async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
@@ -98,6 +81,7 @@ const InventoryScreen = ({ navigation }) => {
         }
       }
     } catch (error) {
+      console.error('Error loading items:', error);
       Alert.alert('Error', 'Failed to load inventory items');
       setItems([]);
     } finally {
@@ -176,7 +160,6 @@ const InventoryScreen = ({ navigation }) => {
               if (result.success) {
                 const updatedItems = items.filter(i => i.id !== item.id);
                 setItems(updatedItems);
-                setFilteredItems(updatedItems); // <-- This line was missing
                 Alert.alert('Success', 'Item deleted successfully');
               } else {
                 Alert.alert('Error', result.error || 'Failed to delete item');
@@ -188,7 +171,7 @@ const InventoryScreen = ({ navigation }) => {
         },
       ]
     );
-  };  
+  };
 
   const handleMenuOption = (option) => {
     setShowMenu(false);
@@ -249,15 +232,7 @@ const InventoryScreen = ({ navigation }) => {
   };
 
   const renderHeader = () => (
-    <Animated.View 
-      style={[
-        styles.header,
-        {
-          opacity: fadeAnim,
-          transform: [{ translateY: slideAnim }]
-        }
-      ]}
-    >
+    <View style={styles.header}>
       <View style={styles.headerTop}>
         <View>
           <Text style={styles.welcomeText}>Welcome back,</Text>
@@ -328,26 +303,11 @@ const InventoryScreen = ({ navigation }) => {
           {searchQuery ? ` found for "${searchQuery}"` : ' in inventory'}
         </Text>
       </View>
-    </Animated.View>
+    </View>
   );
 
   const renderItem = ({ item, index }) => (
-    <Animated.View
-      style={[
-        styles.itemContainer,
-        {
-          opacity: fadeAnim,
-          transform: [
-            {
-              translateY: slideAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, 50 * (index + 1)],
-              }),
-            },
-          ],
-        },
-      ]}
-    >
+    <View style={styles.itemContainer}>
       <TouchableOpacity
         style={styles.itemCard}
         onPress={() => handleItemPress(item)}
@@ -377,16 +337,11 @@ const InventoryScreen = ({ navigation }) => {
           </Text>
         </View>
       </TouchableOpacity>
-    </Animated.View>
+    </View>
   );
 
   const renderEmptyState = () => (
-    <Animated.View 
-      style={[
-        styles.emptyState,
-        { opacity: fadeAnim }
-      ]}
-    >
+    <View style={styles.emptyState}>
       <Ionicons name="cube-outline" size={80} color="#cbd5e1" />
       <Text style={styles.emptyTitle}>
         {searchQuery ? 'No items found' : 'No items yet'}
@@ -403,10 +358,10 @@ const InventoryScreen = ({ navigation }) => {
           <Text style={styles.emptyAddButtonText}>Add First Item</Text>
         </TouchableOpacity>
       )}
-    </Animated.View>
+    </View>
   );
 
-  if (!screenReady || loading) {
+  if (loading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -415,7 +370,7 @@ const InventoryScreen = ({ navigation }) => {
         </View>
       </SafeAreaView>
     );
-  }  
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -432,14 +387,9 @@ const InventoryScreen = ({ navigation }) => {
         renderItem={renderItem}
         keyExtractor={(item) => item.id.toString()}
         numColumns={2}
-        ListHeaderComponent={<View>{renderHeader()}</View>} // Wrap in <View> to avoid layout conflict
+        ListHeaderComponent={renderHeader}
         ListEmptyComponent={renderEmptyState}
-        contentContainerStyle={{
-          paddingHorizontal: 16,
-          paddingBottom: 20,
-          paddingTop: 20,
-          minHeight: '100%', // Ensures scroll area fills screen
-        }}
+        contentContainerStyle={styles.listContainer}
         columnWrapperStyle={filteredItems.length > 0 ? styles.row : null}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -476,6 +426,7 @@ const styles = StyleSheet.create({
   listContainer: {
     paddingHorizontal: 16,
     paddingBottom: 20,
+    flexGrow: 1,
   },
   header: {
     paddingVertical: 20,
