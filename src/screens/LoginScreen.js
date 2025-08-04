@@ -12,6 +12,7 @@ import {
   ScrollView,
   Animated,
   Dimensions,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import authService from '../services/authService';
@@ -216,10 +217,12 @@ const LoginScreen = ({ navigation }) => {
           >
             {/* Header */}
             <View style={styles.header}>
-              <View style={styles.iconContainer}>
-                <Ionicons name="cube-outline" size={50} color="#2563eb" />
-              </View>
-              <Text style={styles.title}>Inventory Tracker</Text>
+              <Image
+                source={require('../assets/logo.png')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+              <Text style={styles.title}>Inventory App</Text>
               <Text style={styles.subtitle}>Manage your items with ease</Text>
             </View>
 
@@ -374,22 +377,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 40,
   },
-  iconContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#eff6ff',
-    justifyContent: 'center',
-    alignItems: 'center',
+  logo: {
+    width: 200,
+    height: 80,
     marginBottom: 24,
-    shadowColor: '#2563eb',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
   },
   title: {
     fontSize: 32,
