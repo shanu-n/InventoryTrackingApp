@@ -174,6 +174,7 @@ const InventoryScreen = ({ navigation }) => {
   };
 
   const handleMenuOption = (option) => {
+    console.log('Menu option pressed:', option); // Debug log
     setShowMenu(false);
     
     switch (option) {
@@ -188,19 +189,151 @@ const InventoryScreen = ({ navigation }) => {
     }
   };
 
-  const showInventoryStats = async () => {
+  const calculateStats = () => {
+    if (!items || items.length === 0) {
+      return {
+        totalItems: 0,
+        uniqueVendors: 0,
+        itemsThisMonth: 0,
+        itemsThisWeek: 0,
+        oldestItem: null,
+        newestItem: null,
+        topVendor: null,
+        avgItemAge: 0
+      };
+    }
+
+    // Calculate basic stats
+    const totalItems = items.length;
+    
+    // Get unique vendors
+    const vendors = [...new Set(items.map(item => item.vendor))];
+    const uniqueVendors = vendors.length;
+    
+    // Calculate items added this month and week
+    const now = new Date();
+    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const thisWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
+    const itemsThisMonth = items.filter(item => {
+      const createdDate = new Date(item.created_at || item.manufacture_date);
+      return createdDate >= thisMonth;
+    }).length;
+    
+    const itemsThisWeek = items.filter(item => {
+      const createdDate = new Date(item.created_at || item.manufacture_date);
+      return createdDate >= thisWeek;
+    }).length;
+    
+    // Find oldest and newest items by manufacture date
+    const sortedByManufacture = items.sort((a, b) => 
+      new Date(a.manufacture_date) - new Date(b.manufacture_date)
+    );
+    const oldestItem = sortedByManufacture[0];
+    const newestItem = sortedByManufacture[sortedByManufacture.length - 1];
+    
+    // Find top vendor
+    const vendorCounts = {};
+    items.forEach(item => {
+      vendorCounts[item.vendor] = (vendorCounts[item.vendor] || 0) + 1;
+    });
+    const topVendor = Object.keys(vendorCounts).reduce((a, b) => 
+      vendorCounts[a] > vendorCounts[b] ? a : b
+    );
+    
+    // Calculate average item age in days
+    const totalAge = items.reduce((sum, item) => {
+      const ageInDays = (now - new Date(item.manufacture_date)) / (1000 * 60 * 60 * 24);
+      return sum + ageInDays;
+    }, 0);
+    const avgItemAge = Math.round(totalAge / totalItems);
+
+    return {
+      totalItems,
+      uniqueVendors,
+      itemsThisMonth,
+      itemsThisWeek,
+      oldestItem,
+      newestItem,
+      topVendor,
+      topVendorCount: vendorCounts[topVendor],
+      avgItemAge
+    };
+  };
+
+  const showInventoryStats = () => {
     try {
-      const result = await inventoryService.getInventoryStats();
-      if (result.success) {
-        const { totalItems, totalVendors, itemsThisMonth } = result.data;
+      const stats = calculateStats();
+      
+      if (stats.totalItems === 0) {
         Alert.alert(
           'Inventory Statistics',
-          `Total Items: ${totalItems}\nUnique Vendors: ${totalVendors}\nItems Added This Month: ${itemsThisMonth}`,
+          'No items in inventory yet. Add some items to see statistics!',
           [{ text: 'OK' }]
         );
+        return;
       }
+      
+      const statsMessage = `📊 INVENTORY OVERVIEW
+      
+📦 Total Items: ${stats.totalItems}
+🏢 Unique Vendors: ${stats.uniqueVendors}
+📅 Added This Month: ${stats.itemsThisMonth}
+⏱️ Added This Week: ${stats.itemsThisWeek}
+
+🏆 TOP VENDOR
+${stats.topVendor} (${stats.topVendorCount} items)
+
+📋 ITEM DETAILS
+⏳ Average Age: ${stats.avgItemAge} days
+📅 Oldest Item: ${stats.oldestItem?.title} (${formatDate(stats.oldestItem?.manufacture_date)})
+🆕 Newest Item: ${stats.newestItem?.title} (${formatDate(stats.newestItem?.manufacture_date)})`;
+
+      Alert.alert(
+        'Inventory Statistics',
+        statsMessage,
+        [
+          { text: 'View Vendors', onPress: () => showVendorBreakdown() },
+          { text: 'OK' }
+        ]
+      );
     } catch (error) {
-      Alert.alert('Error', 'Failed to load statistics');
+      console.error('Error calculating statistics:', error);
+      Alert.alert('Error', 'Failed to calculate statistics');
+    }
+  };
+
+  const showVendorBreakdown = () => {
+    try {
+      if (!items || items.length === 0) {
+        Alert.alert('No Data', 'No items available for vendor breakdown.');
+        return;
+      }
+
+      // Calculate vendor breakdown
+      const vendorCounts = {};
+      items.forEach(item => {
+        vendorCounts[item.vendor] = (vendorCounts[item.vendor] || 0) + 1;
+      });
+
+      // Sort vendors by count (descending)
+      const sortedVendors = Object.entries(vendorCounts)
+        .sort(([,a], [,b]) => b - a)
+        .slice(0, 10); // Show top 10 vendors
+
+      const vendorMessage = `🏢 VENDOR BREAKDOWN (Top ${Math.min(10, sortedVendors.length)})
+
+${sortedVendors.map(([vendor, count], index) => 
+  `${index + 1}. ${vendor}: ${count} items`
+).join('\n')}
+
+${sortedVendors.length < Object.keys(vendorCounts).length ? 
+  `\n... and ${Object.keys(vendorCounts).length - sortedVendors.length} more vendors` : ''}`;
+
+      Alert.alert('Vendor Breakdown', vendorMessage, [{ text: 'OK' }]);
+    } catch (error) {
+      console.error('Error showing vendor breakdown:', error);
+      Alert.alert('Error', 'Failed to show vendor breakdown');
     }
   };
 
@@ -223,12 +356,17 @@ const InventoryScreen = ({ navigation }) => {
   };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
+    if (!dateString) return 'Unknown';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+    } catch (error) {
+      return 'Invalid Date';
+    }
   };
 
   const renderHeader = () => (
@@ -250,26 +388,6 @@ const InventoryScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
       </View>
-
-      {/* Dropdown Menu */}
-      {showMenu && (
-        <View style={styles.dropdown}>
-          <TouchableOpacity 
-            style={styles.dropdownItem}
-            onPress={() => handleMenuOption('refresh')}
-          >
-            <Ionicons name="refresh-outline" size={20} color="#475569" />
-            <Text style={styles.dropdownText}>Refresh</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.dropdownItem}
-            onPress={() => handleMenuOption('stats')}
-          >
-            <Ionicons name="stats-chart-outline" size={20} color="#475569" />
-            <Text style={styles.dropdownText}>Statistics</Text>
-          </TouchableOpacity>
-        </View>
-      )}
 
       <View style={styles.searchContainer}>
         <View style={styles.searchInputContainer}>
@@ -374,14 +492,6 @@ const InventoryScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {showMenu && (
-        <TouchableOpacity
-          style={styles.overlay}
-          activeOpacity={1}
-          onPress={() => setShowMenu(false)}
-        />
-      )}
-      
       <FlatList
         data={filteredItems}
         renderItem={renderItem}
@@ -396,9 +506,38 @@ const InventoryScreen = ({ navigation }) => {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
       />
+  
+      {/* Dropdown Menu - moved outside FlatList for proper z-index */}
+      {showMenu && (
+        <>
+          <TouchableOpacity
+            style={styles.overlay}
+            activeOpacity={1}
+            onPress={() => setShowMenu(false)}
+          />
+          <View style={styles.dropdown}>
+            <TouchableOpacity 
+              style={styles.dropdownItem}
+              onPress={() => handleMenuOption('refresh')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="refresh-outline" size={20} color="#475569" />
+              <Text style={styles.dropdownText}>Refresh</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.dropdownItem}
+              onPress={() => handleMenuOption('stats')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="stats-chart-outline" size={20} color="#475569" />
+              <Text style={styles.dropdownText}>Statistics</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
     </SafeAreaView>
-  );
-};
+  );  
+}; 
 
 const styles = StyleSheet.create({
   container: {
@@ -411,6 +550,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    backgroundColor: 'transparent',
     zIndex: 999,
   },
   loadingContainer: {
@@ -431,6 +571,7 @@ const styles = StyleSheet.create({
   header: {
     paddingVertical: 20,
     marginBottom: 16,
+    position: 'relative',
   },
   headerTop: {
     flexDirection: 'row',
@@ -464,8 +605,8 @@ const styles = StyleSheet.create({
   },
   dropdown: {
     position: 'absolute',
-    top: 60,
-    right: 0,
+    top: 76, // Adjusted positioning
+    right: 16,
     backgroundColor: '#ffffff',
     borderRadius: 12,
     paddingVertical: 8,
@@ -485,6 +626,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
+    minHeight: 44, // Ensures minimum touch target
   },
   dropdownText: {
     marginLeft: 12,
