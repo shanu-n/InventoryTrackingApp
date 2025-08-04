@@ -102,9 +102,18 @@ const AddItemScreen = ({ navigation }) => {
       });
 
       if (!result.canceled && result.assets && result.assets[0]) {
-        setCapturedImage(result.assets[0].uri);
+        // Clear any existing state first
         setShowImageOptions(false);
-        setShowConfirmImage(true);
+        setShowCamera(false);
+        setShowItemForm(false);
+        
+        // Set the captured image
+        setCapturedImage(result.assets[0].uri);
+        
+        // Use a slight delay to ensure state updates properly
+        setTimeout(() => {
+          setShowConfirmImage(true);
+        }, 100);
       }
     } catch (error) {
       console.error('Image picker error:', error);
@@ -121,9 +130,19 @@ const AddItemScreen = ({ navigation }) => {
           quality: 0.8,
           base64: false,
         });
-        setCapturedImage(photo.uri);
+        
+        // Clear states first
         setShowCamera(false);
-        setShowConfirmImage(true);
+        setShowImageOptions(false);
+        setShowItemForm(false);
+        
+        // Set the captured image
+        setCapturedImage(photo.uri);
+        
+        // Use a slight delay to ensure state updates properly
+        setTimeout(() => {
+          setShowConfirmImage(true);
+        }, 100);
       } catch (error) {
         Alert.alert('Error', 'Failed to take picture');
       }
@@ -133,12 +152,24 @@ const AddItemScreen = ({ navigation }) => {
   const retakePicture = () => {
     setCapturedImage(null);
     setShowConfirmImage(false);
-    setShowImageOptions(true);
+    setShowCamera(false);
+    setShowItemForm(false);
+    
+    // Use a slight delay to ensure state clears properly
+    setTimeout(() => {
+      setShowImageOptions(true);
+    }, 100);
   };
 
   const confirmImage = () => {
     setShowConfirmImage(false);
-    setShowItemForm(true);
+    setShowImageOptions(false);
+    setShowCamera(false);
+    
+    // Use a slight delay to ensure state updates properly
+    setTimeout(() => {
+      setShowItemForm(true);
+    }, 100);
   };
 
   const validateForm = () => {
@@ -183,18 +214,7 @@ const AddItemScreen = ({ navigation }) => {
               text: 'OK',
               onPress: () => {
                 // Reset all states before navigation
-                setShowItemForm(false);
-                setShowConfirmImage(false);
-                setShowImageOptions(true);
-                setCapturedImage(null);
-                setFormData({
-                  title: '',
-                  description: '',
-                  item_id: '',
-                  vendor: '',
-                  manufacture_date: '',
-                });
-                setErrors({});
+                resetAllStates();
                 navigation.goBack();
               },
             },
@@ -210,18 +230,10 @@ const AddItemScreen = ({ navigation }) => {
     }
   };
 
-  const handleBackToImageOptions = () => {
-    setShowConfirmImage(false);
+  const resetAllStates = () => {
     setShowItemForm(false);
-    setShowImageOptions(true);
-    setCapturedImage(null);
-  };
-
-  const handleClose = () => {
-    // Reset all states before closing
+    setShowConfirmImage(false);
     setShowCamera(false);
-    setShowConfirmImage(false);
-    setShowItemForm(false);
     setShowImageOptions(true);
     setCapturedImage(null);
     setFormData({
@@ -232,6 +244,22 @@ const AddItemScreen = ({ navigation }) => {
       manufacture_date: '',
     });
     setErrors({});
+    setProcessingImage(false);
+  };
+
+  const handleBackToImageOptions = () => {
+    setShowConfirmImage(false);
+    setShowItemForm(false);
+    setShowCamera(false);
+    setCapturedImage(null);
+    
+    setTimeout(() => {
+      setShowImageOptions(true);
+    }, 100);
+  };
+
+  const handleClose = () => {
+    resetAllStates();
     navigation.goBack();
   };
 
@@ -261,7 +289,7 @@ const AddItemScreen = ({ navigation }) => {
           {processingImage && (
             <View style={styles.processingContainer}>
               <ActivityIndicator size="small" color="#2563eb" />
-              <Text style={styles.processingText}>Processing image...</Text>
+              <Text style={styles.processingText}>Loading...</Text>
             </View>
           )}
 
@@ -310,7 +338,9 @@ const AddItemScreen = ({ navigation }) => {
                 style={styles.cameraButton}
                 onPress={() => {
                   setShowCamera(false);
-                  setShowImageOptions(true);
+                  setTimeout(() => {
+                    setShowImageOptions(true);
+                  }, 100);
                 }}
               >
                 <Ionicons name="close" size={24} color="#ffffff" />
@@ -353,7 +383,9 @@ const AddItemScreen = ({ navigation }) => {
           </View>
 
           <View style={styles.imagePreviewContainer}>
-            <Image source={{ uri: capturedImage }} style={styles.imagePreview} />
+            {capturedImage && (
+              <Image source={{ uri: capturedImage }} style={styles.imagePreview} />
+            )}
           </View>
 
           <Text style={styles.confirmText}>
@@ -386,7 +418,9 @@ const AddItemScreen = ({ navigation }) => {
           <View style={styles.formHeader}>
             <TouchableOpacity onPress={() => {
               setShowItemForm(false);
-              setShowConfirmImage(true);
+              setTimeout(() => {
+                setShowConfirmImage(true);
+              }, 100);
             }}>
               <Ionicons name="arrow-back" size={24} color="#64748b" />
             </TouchableOpacity>
@@ -396,7 +430,9 @@ const AddItemScreen = ({ navigation }) => {
 
           <ScrollView style={styles.formScrollView} showsVerticalScrollIndicator={false}>
             <View style={styles.imagePreviewContainer}>
-              <Image source={{ uri: capturedImage }} style={styles.formImagePreview} />
+              {capturedImage && (
+                <Image source={{ uri: capturedImage }} style={styles.formImagePreview} />
+              )}
             </View>
 
             <View style={styles.formSection}>
