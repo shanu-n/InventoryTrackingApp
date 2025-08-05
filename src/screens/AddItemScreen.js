@@ -6,7 +6,6 @@ import {
   SafeAreaView,
   TouchableOpacity,
   Alert,
-  Modal,
   TextInput,
   ScrollView,
   Image,
@@ -27,14 +26,13 @@ const AddItemScreen = ({ navigation }) => {
   
   // Image states
   const [hasGalleryPermission, setHasGalleryPermission] = useState(null);
-  const [showCamera, setShowCamera] = useState(false);
   const [capturedImage, setCapturedImage] = useState(null);
-  const [showImageOptions, setShowImageOptions] = useState(true);
-  const [showConfirmImage, setShowConfirmImage] = useState(false);
-  const [showItemForm, setShowItemForm] = useState(false);
   const [cameraFacing, setCameraFacing] = useState('back');
   const [loading, setLoading] = useState(false);
   const [processingImage, setProcessingImage] = useState(false);
+  
+  // Screen states - using direct rendering instead of modals
+  const [currentScreen, setCurrentScreen] = useState('imageOptions'); // 'imageOptions', 'camera', 'confirmImage', 'itemForm'
   
   // Form states
   const [formData, setFormData] = useState({
@@ -72,6 +70,12 @@ const AddItemScreen = ({ navigation }) => {
 
     setupPermissions();
   }, []);
+
+  // Debug useEffect to track screen state changes
+  useEffect(() => {
+    console.log('🔄 Screen state changed to:', currentScreen);
+    console.log('📷 Captured image:', capturedImage ? 'exists' : 'null');
+  }, [currentScreen, capturedImage]);
 
   const animateIn = () => {
     Animated.parallel([
@@ -121,8 +125,7 @@ const AddItemScreen = ({ navigation }) => {
       }
     }
     
-    setShowImageOptions(false);
-    setShowCamera(true);
+    setCurrentScreen('camera');
   };
 
   const handleUploadPhoto = async () => {
@@ -135,25 +138,20 @@ const AddItemScreen = ({ navigation }) => {
 
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
       });
 
       if (!result.canceled && result.assets && result.assets[0]) {
-        console.log('Image selected:', result.assets[0].uri); // Debug log
+        console.log('✅ Image selected:', result.assets[0].uri);
         
-        // Set the captured image first
+        // Set the captured image and show confirm screen
         setCapturedImage(result.assets[0].uri);
+        setCurrentScreen('confirmImage');
         
-        // Clear all modal states
-        setShowImageOptions(false);
-        setShowCamera(false);
-        setShowItemForm(false);
-        
-        // Show confirm image modal
-        setShowConfirmImage(true);
+        console.log('✅ Screen set to confirmImage');
       }
     } catch (error) {
       console.error('Image picker error:', error);
@@ -170,18 +168,13 @@ const AddItemScreen = ({ navigation }) => {
           quality: 0.8,
         });
         
-        console.log('Photo taken:', photo.uri); // Debug log
+        console.log('✅ Photo taken:', photo.uri);
         
-        // Set the captured image first
+        // Set the captured image and show confirm screen
         setCapturedImage(photo.uri);
+        setCurrentScreen('confirmImage');
         
-        // Clear all modal states
-        setShowCamera(false);
-        setShowImageOptions(false);
-        setShowItemForm(false);
-        
-        // Show confirm image modal
-        setShowConfirmImage(true);
+        console.log('✅ Screen set to confirmImage');
       } catch (error) {
         console.error('Take picture error:', error);
         Alert.alert('Error', 'Failed to take picture');
@@ -191,22 +184,12 @@ const AddItemScreen = ({ navigation }) => {
 
   const retakePicture = () => {
     setCapturedImage(null);
-    setShowConfirmImage(false);
-    setShowCamera(false);
-    setShowItemForm(false);
-    setShowImageOptions(true);
+    setCurrentScreen('imageOptions');
   };
 
   const confirmImage = () => {
-    console.log('Confirming image:', capturedImage); // Debug log
-    
-    // Clear all modal states first
-    setShowConfirmImage(false);
-    setShowImageOptions(false);
-    setShowCamera(false);
-    
-    // Show the form
-    setShowItemForm(true);
+    console.log('✅ Confirming image:', capturedImage);
+    setCurrentScreen('itemForm');
   };
 
   const validateForm = () => {
@@ -228,11 +211,11 @@ const AddItemScreen = ({ navigation }) => {
   };
 
   const handleSaveItem = async () => {
-    console.log('Save item called with data:', formData); // Debug log
-    console.log('Captured image:', capturedImage); // Debug log
+    console.log('💾 Save item called with data:', formData);
+    console.log('📷 Captured image:', capturedImage);
     
     if (!validateForm()) {
-      console.log('Validation failed:', errors);
+      console.log('❌ Validation failed:', errors);
       return;
     }
 
@@ -244,10 +227,10 @@ const AddItemScreen = ({ navigation }) => {
         image_url: capturedImage,
       };
 
-      console.log('Sending item data to service:', itemData); // Debug log
+      console.log('📤 Sending item data to service:', itemData);
 
       const result = await inventoryService.addItem(itemData);
-      console.log('Service result:', result); // Debug log
+      console.log('📥 Service result:', result);
 
       if (result.success) {
         Alert.alert(
@@ -257,7 +240,7 @@ const AddItemScreen = ({ navigation }) => {
             {
               text: 'OK',
               onPress: () => {
-                console.log('Navigating back to inventory'); // Debug log
+                console.log('🔙 Navigating back to inventory');
                 // Reset all states before navigation
                 resetAllStates();
                 navigation.goBack();
@@ -266,11 +249,11 @@ const AddItemScreen = ({ navigation }) => {
           ]
         );
       } else {
-        console.error('Service error:', result.error);
+        console.error('❌ Service error:', result.error);
         Alert.alert('Error', result.error || 'Failed to add item');
       }
     } catch (error) {
-      console.error('Save item error:', error);
+      console.error('❌ Save item error:', error);
       Alert.alert('Error', 'Something went wrong while saving the item');
     } finally {
       setLoading(false);
@@ -278,10 +261,7 @@ const AddItemScreen = ({ navigation }) => {
   };
 
   const resetAllStates = () => {
-    setShowItemForm(false);
-    setShowConfirmImage(false);
-    setShowCamera(false);
-    setShowImageOptions(true);
+    setCurrentScreen('imageOptions');
     setCapturedImage(null);
     setFormData({
       title: '',
@@ -292,14 +272,6 @@ const AddItemScreen = ({ navigation }) => {
     });
     setErrors({});
     setProcessingImage(false);
-  };
-
-  const handleBackToImageOptions = () => {
-    setShowConfirmImage(false);
-    setShowItemForm(false);
-    setShowCamera(false);
-    setCapturedImage(null);
-    setShowImageOptions(true);
   };
 
   const handleClose = () => {
@@ -313,68 +285,84 @@ const AddItemScreen = ({ navigation }) => {
     );
   };
 
-  const renderImageOptions = () => (
-    <Modal visible={showImageOptions} transparent animationType="slide">
-      <View style={styles.modalContainer}>
-        <Animated.View 
-          style={[
-            styles.imageOptionsModal,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }]
-            }
-          ]}
-        >
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Add Item Photo</Text>
-            <TouchableOpacity onPress={handleClose}>
-              <Ionicons name="close" size={24} color="#64748b" />
-            </TouchableOpacity>
-          </View>
+  // Camera permissions loading screen
+  if (!cameraPermission) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2563eb" />
+          <Text style={styles.loadingText}>Loading camera permissions...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
-          <Text style={styles.modalSubtitle}>
-            Choose how you'd like to add a photo for your inventory item
-          </Text>
-
-          {processingImage && (
-            <View style={styles.processingContainer}>
-              <ActivityIndicator size="small" color="#2563eb" />
-              <Text style={styles.processingText}>Loading...</Text>
+  // Image Options Screen
+  if (currentScreen === 'imageOptions') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.screenContainer}>
+          <Animated.View 
+            style={[
+              styles.imageOptionsContainer,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }]
+              }
+            ]}
+          >
+            <View style={styles.header}>
+              <Text style={styles.title}>Add Item Photo</Text>
+              <TouchableOpacity onPress={handleClose}>
+                <Ionicons name="close" size={24} color="#64748b" />
+              </TouchableOpacity>
             </View>
-          )}
 
-          <View style={styles.optionsContainer}>
-            <TouchableOpacity 
-              style={[styles.optionButton, processingImage && styles.optionButtonDisabled]} 
-              onPress={handleTakePhoto}
-              disabled={processingImage}
-            >
-              <View style={styles.optionIcon}>
-                <Ionicons name="camera" size={32} color="#2563eb" />
+            <Text style={styles.subtitle}>
+              Choose how you'd like to add a photo for your inventory item
+            </Text>
+
+            {processingImage && (
+              <View style={styles.processingContainer}>
+                <ActivityIndicator size="small" color="#2563eb" />
+                <Text style={styles.processingText}>Loading...</Text>
               </View>
-              <Text style={styles.optionTitle}>Take Photo</Text>
-              <Text style={styles.optionDescription}>Use your camera to capture the item</Text>
-            </TouchableOpacity>
+            )}
 
-            <TouchableOpacity 
-              style={[styles.optionButton, processingImage && styles.optionButtonDisabled]} 
-              onPress={handleUploadPhoto}
-              disabled={processingImage}
-            >
-              <View style={styles.optionIcon}>
-                <Ionicons name="images" size={32} color="#2563eb" />
-              </View>
-              <Text style={styles.optionTitle}>Upload Photo</Text>
-              <Text style={styles.optionDescription}>Choose from your photo gallery</Text>
-            </TouchableOpacity>
-          </View>
-        </Animated.View>
-      </View>
-    </Modal>
-  );
+            <View style={styles.optionsContainer}>
+              <TouchableOpacity 
+                style={[styles.optionButton, processingImage && styles.optionButtonDisabled]} 
+                onPress={handleTakePhoto}
+                disabled={processingImage}
+              >
+                <View style={styles.optionIcon}>
+                  <Ionicons name="camera" size={32} color="#2563eb" />
+                </View>
+                <Text style={styles.optionTitle}>Take Photo</Text>
+                <Text style={styles.optionDescription}>Use your camera to capture the item</Text>
+              </TouchableOpacity>
 
-  const renderCamera = () => (
-    <Modal visible={showCamera} animationType="slide">
+              <TouchableOpacity 
+                style={[styles.optionButton, processingImage && styles.optionButtonDisabled]} 
+                onPress={handleUploadPhoto}
+                disabled={processingImage}
+              >
+                <View style={styles.optionIcon}>
+                  <Ionicons name="images" size={32} color="#2563eb" />
+                </View>
+                <Text style={styles.optionTitle}>Upload Photo</Text>
+                <Text style={styles.optionDescription}>Choose from your photo gallery</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Camera Screen
+  if (currentScreen === 'camera') {
+    return (
       <SafeAreaView style={styles.cameraContainer}>
         <CameraView
           ref={cameraRef}
@@ -385,10 +373,7 @@ const AddItemScreen = ({ navigation }) => {
             <View style={styles.cameraHeader}>
               <TouchableOpacity
                 style={styles.cameraButton}
-                onPress={() => {
-                  setShowCamera(false);
-                  setShowImageOptions(true);
-                }}
+                onPress={() => setCurrentScreen('imageOptions')}
               >
                 <Ionicons name="close" size={24} color="#ffffff" />
               </TouchableOpacity>
@@ -409,58 +394,78 @@ const AddItemScreen = ({ navigation }) => {
           </View>
         </CameraView>
       </SafeAreaView>
-    </Modal>
-  );
+    );
+  }
 
-  const renderConfirmImage = () => (
-    <Modal visible={showConfirmImage} transparent animationType="slide">
-      <View style={styles.modalContainer}>
-        <Animated.View style={[styles.confirmModal, { opacity: fadeAnim }]}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Confirm Photo</Text>
-            <TouchableOpacity onPress={handleBackToImageOptions}>
-              <Ionicons name="close" size={24} color="#64748b" />
-            </TouchableOpacity>
-          </View>
+  // Confirm Image Screen
+  if (currentScreen === 'confirmImage') {
+    return (
+      <SafeAreaView style={styles.confirmContainer}>
+        <View style={styles.confirmHeader}>
+          <TouchableOpacity onPress={() => setCurrentScreen('imageOptions')}>
+            <Ionicons name="arrow-back" size={24} color="#64748b" />
+          </TouchableOpacity>
+          <Text style={styles.confirmTitle}>Confirm Photo</Text>
+          <View style={{ width: 24 }} />
+        </View>
 
+        <View style={styles.confirmContent}>
           <View style={styles.imagePreviewContainer}>
-            {capturedImage && (
-              <Image source={{ uri: capturedImage }} style={styles.imagePreview} />
+            {capturedImage ? (
+              <Image
+                source={{ uri: capturedImage }}
+                style={styles.imagePreview}
+                onError={(error) => {
+                  console.log('⚠️ Image failed to load:', error);
+                  Alert.alert('Image Error', 'Unable to load image.');
+                }}
+                onLoad={() => console.log('✅ Image loaded successfully')}
+              />
+            ) : (
+              <View style={[styles.imagePreview, styles.imagePlaceholder]}>
+                <Text style={{ color: '#64748b' }}>No image loaded</Text>
+              </View>
             )}
           </View>
 
           <Text style={styles.confirmText}>
-            Is this the photo you want to use for your inventory item?
+            Does this photo look good? You can retake it or continue with the item details.
           </Text>
+        </View>
 
+        <View style={styles.confirmFooter}>
           <View style={styles.confirmButtons}>
-            <TouchableOpacity style={styles.retakeButton} onPress={retakePicture}>
+            <TouchableOpacity
+              style={styles.retakeButton}
+              onPress={retakePicture}
+            >
               <Ionicons name="camera" size={20} color="#64748b" />
               <Text style={styles.retakeButtonText}>Retake</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.confirmButton} onPress={confirmImage}>
+            <TouchableOpacity
+              style={styles.confirmButton}
+              onPress={confirmImage}
+            >
               <Ionicons name="checkmark" size={20} color="#ffffff" />
               <Text style={styles.confirmButtonText}>Use Photo</Text>
             </TouchableOpacity>
           </View>
-        </Animated.View>
-      </View>
-    </Modal>
-  );
+        </View>
+      </SafeAreaView>
+    );
+  }
 
-  const renderItemForm = () => (
-    <Modal visible={showItemForm} animationType="slide">
+  // Item Form Screen
+  if (currentScreen === 'itemForm') {
+    return (
       <SafeAreaView style={styles.formContainer}>
         <KeyboardAvoidingView 
           style={styles.formKeyboardView}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <View style={styles.formHeader}>
-            <TouchableOpacity onPress={() => {
-              setShowItemForm(false);
-              setShowConfirmImage(true);
-            }}>
+            <TouchableOpacity onPress={() => setCurrentScreen('confirmImage')}>
               <Ionicons name="arrow-back" size={24} color="#64748b" />
             </TouchableOpacity>
             <Text style={styles.formTitle}>Add Item Details</Text>
@@ -584,27 +589,15 @@ const AddItemScreen = ({ navigation }) => {
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </Modal>
-  );
-
-  if (!cameraPermission) {
-    // Camera permissions are still loading
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2563eb" />
-          <Text style={styles.loadingText}>Loading camera permissions...</Text>
-        </View>
-      </SafeAreaView>
     );
   }
 
+  // Fallback - shouldn't reach here
   return (
     <SafeAreaView style={styles.container}>
-      {renderImageOptions()}
-      {renderCamera()}
-      {renderConfirmImage()}
-      {renderItemForm()}
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>Unknown screen state: {currentScreen}</Text>
+      </View>
     </SafeAreaView>
   );
 };
@@ -613,6 +606,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8fafc',
+  },
+  screenContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
   loadingContainer: {
     flex: 1,
@@ -624,32 +622,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#64748b',
   },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  imageOptionsModal: {
+  imageOptionsContainer: {
     backgroundColor: '#ffffff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 40,
-    minHeight: 400,
+    borderRadius: 24,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  modalHeader: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
   },
-  modalTitle: {
+  title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#1e293b',
   },
-  modalSubtitle: {
+  subtitle: {
     fontSize: 16,
     color: '#64748b',
     lineHeight: 22,
@@ -748,31 +745,59 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     backgroundColor: '#ffffff',
   },
-  confirmModal: {
-    backgroundColor: '#ffffff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+  confirmContainer: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  confirmHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 40,
-    minHeight: 500,
+    paddingVertical: 16,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  confirmContent: {
+    flex: 1,
+    paddingHorizontal: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   imagePreviewContainer: {
     alignItems: 'center',
     marginVertical: 24,
   },
   imagePreview: {
-    width: 200,
-    height: 200,
+    width: 250,
+    height: 250,
     borderRadius: 16,
     backgroundColor: '#f1f5f9',
+  },
+  imagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   confirmText: {
     fontSize: 16,
     color: '#64748b',
     textAlign: 'center',
     lineHeight: 22,
-    marginBottom: 32,
+    marginTop: 24,
+    paddingHorizontal: 20,
+  },
+  confirmFooter: {
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
   },
   confirmButtons: {
     flexDirection: 'row',
