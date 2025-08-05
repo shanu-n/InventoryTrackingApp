@@ -32,7 +32,7 @@ const AddItemScreen = ({ navigation }) => {
   const [showImageOptions, setShowImageOptions] = useState(true);
   const [showConfirmImage, setShowConfirmImage] = useState(false);
   const [showItemForm, setShowItemForm] = useState(false);
-  const [cameraFacing, setCameraFacing] = useState('back'); // Changed from CameraType.back
+  const [cameraFacing, setCameraFacing] = useState('back');
   const [loading, setLoading] = useState(false);
   const [processingImage, setProcessingImage] = useState(false);
   
@@ -142,18 +142,18 @@ const AddItemScreen = ({ navigation }) => {
       });
 
       if (!result.canceled && result.assets && result.assets[0]) {
-        // Clear any existing state first
+        console.log('Image selected:', result.assets[0].uri); // Debug log
+        
+        // Set the captured image first
+        setCapturedImage(result.assets[0].uri);
+        
+        // Clear all modal states
         setShowImageOptions(false);
         setShowCamera(false);
         setShowItemForm(false);
         
-        // Set the captured image
-        setCapturedImage(result.assets[0].uri);
-        
-        // Use a slight delay to ensure state updates properly
-        setTimeout(() => {
-          setShowConfirmImage(true);
-        }, 100);
+        // Show confirm image modal
+        setShowConfirmImage(true);
       }
     } catch (error) {
       console.error('Image picker error:', error);
@@ -170,18 +170,18 @@ const AddItemScreen = ({ navigation }) => {
           quality: 0.8,
         });
         
-        // Clear states first
+        console.log('Photo taken:', photo.uri); // Debug log
+        
+        // Set the captured image first
+        setCapturedImage(photo.uri);
+        
+        // Clear all modal states
         setShowCamera(false);
         setShowImageOptions(false);
         setShowItemForm(false);
         
-        // Set the captured image
-        setCapturedImage(photo.uri);
-        
-        // Use a slight delay to ensure state updates properly
-        setTimeout(() => {
-          setShowConfirmImage(true);
-        }, 100);
+        // Show confirm image modal
+        setShowConfirmImage(true);
       } catch (error) {
         console.error('Take picture error:', error);
         Alert.alert('Error', 'Failed to take picture');
@@ -194,22 +194,19 @@ const AddItemScreen = ({ navigation }) => {
     setShowConfirmImage(false);
     setShowCamera(false);
     setShowItemForm(false);
-    
-    // Use a slight delay to ensure state clears properly
-    setTimeout(() => {
-      setShowImageOptions(true);
-    }, 100);
+    setShowImageOptions(true);
   };
 
   const confirmImage = () => {
+    console.log('Confirming image:', capturedImage); // Debug log
+    
+    // Clear all modal states first
     setShowConfirmImage(false);
     setShowImageOptions(false);
     setShowCamera(false);
     
-    // Use a slight delay to ensure state updates properly
-    setTimeout(() => {
-      setShowItemForm(true);
-    }, 100);
+    // Show the form
+    setShowItemForm(true);
   };
 
   const validateForm = () => {
@@ -231,7 +228,11 @@ const AddItemScreen = ({ navigation }) => {
   };
 
   const handleSaveItem = async () => {
+    console.log('Save item called with data:', formData); // Debug log
+    console.log('Captured image:', capturedImage); // Debug log
+    
     if (!validateForm()) {
+      console.log('Validation failed:', errors);
       return;
     }
 
@@ -243,7 +244,10 @@ const AddItemScreen = ({ navigation }) => {
         image_url: capturedImage,
       };
 
+      console.log('Sending item data to service:', itemData); // Debug log
+
       const result = await inventoryService.addItem(itemData);
+      console.log('Service result:', result); // Debug log
 
       if (result.success) {
         Alert.alert(
@@ -253,6 +257,7 @@ const AddItemScreen = ({ navigation }) => {
             {
               text: 'OK',
               onPress: () => {
+                console.log('Navigating back to inventory'); // Debug log
                 // Reset all states before navigation
                 resetAllStates();
                 navigation.goBack();
@@ -261,6 +266,7 @@ const AddItemScreen = ({ navigation }) => {
           ]
         );
       } else {
+        console.error('Service error:', result.error);
         Alert.alert('Error', result.error || 'Failed to add item');
       }
     } catch (error) {
@@ -293,10 +299,7 @@ const AddItemScreen = ({ navigation }) => {
     setShowItemForm(false);
     setShowCamera(false);
     setCapturedImage(null);
-    
-    setTimeout(() => {
-      setShowImageOptions(true);
-    }, 100);
+    setShowImageOptions(true);
   };
 
   const handleClose = () => {
@@ -384,9 +387,7 @@ const AddItemScreen = ({ navigation }) => {
                 style={styles.cameraButton}
                 onPress={() => {
                   setShowCamera(false);
-                  setTimeout(() => {
-                    setShowImageOptions(true);
-                  }, 100);
+                  setShowImageOptions(true);
                 }}
               >
                 <Ionicons name="close" size={24} color="#ffffff" />
@@ -458,9 +459,7 @@ const AddItemScreen = ({ navigation }) => {
           <View style={styles.formHeader}>
             <TouchableOpacity onPress={() => {
               setShowItemForm(false);
-              setTimeout(() => {
-                setShowConfirmImage(true);
-              }, 100);
+              setShowConfirmImage(true);
             }}>
               <Ionicons name="arrow-back" size={24} color="#64748b" />
             </TouchableOpacity>
@@ -483,7 +482,12 @@ const AddItemScreen = ({ navigation }) => {
                 <TextInput
                   style={[styles.textInput, errors.title && styles.inputError]}
                   value={formData.title}
-                  onChangeText={(text) => setFormData({ ...formData, title: text })}
+                  onChangeText={(text) => {
+                    setFormData({ ...formData, title: text });
+                    if (errors.title) {
+                      setErrors({ ...errors, title: null });
+                    }
+                  }}
                   placeholder="Enter item title"
                   placeholderTextColor="#94a3b8"
                 />
@@ -495,7 +499,12 @@ const AddItemScreen = ({ navigation }) => {
                 <TextInput
                   style={[styles.textInput, styles.textArea, errors.description && styles.inputError]}
                   value={formData.description}
-                  onChangeText={(text) => setFormData({ ...formData, description: text })}
+                  onChangeText={(text) => {
+                    setFormData({ ...formData, description: text });
+                    if (errors.description) {
+                      setErrors({ ...errors, description: null });
+                    }
+                  }}
                   placeholder="Enter item description"
                   placeholderTextColor="#94a3b8"
                   multiline
@@ -509,7 +518,12 @@ const AddItemScreen = ({ navigation }) => {
                 <TextInput
                   style={[styles.textInput, errors.item_id && styles.inputError]}
                   value={formData.item_id}
-                  onChangeText={(text) => setFormData({ ...formData, item_id: text })}
+                  onChangeText={(text) => {
+                    setFormData({ ...formData, item_id: text });
+                    if (errors.item_id) {
+                      setErrors({ ...errors, item_id: null });
+                    }
+                  }}
                   placeholder="Enter unique item ID"
                   placeholderTextColor="#94a3b8"
                 />
@@ -521,7 +535,12 @@ const AddItemScreen = ({ navigation }) => {
                 <TextInput
                   style={[styles.textInput, errors.vendor && styles.inputError]}
                   value={formData.vendor}
-                  onChangeText={(text) => setFormData({ ...formData, vendor: text })}
+                  onChangeText={(text) => {
+                    setFormData({ ...formData, vendor: text });
+                    if (errors.vendor) {
+                      setErrors({ ...errors, vendor: null });
+                    }
+                  }}
                   placeholder="Enter vendor name"
                   placeholderTextColor="#94a3b8"
                 />
@@ -533,7 +552,12 @@ const AddItemScreen = ({ navigation }) => {
                 <TextInput
                   style={[styles.textInput, errors.manufacture_date && styles.inputError]}
                   value={formData.manufacture_date}
-                  onChangeText={(text) => setFormData({ ...formData, manufacture_date: text })}
+                  onChangeText={(text) => {
+                    setFormData({ ...formData, manufacture_date: text });
+                    if (errors.manufacture_date) {
+                      setErrors({ ...errors, manufacture_date: null });
+                    }
+                  }}
                   placeholder="YYYY-MM-DD"
                   placeholderTextColor="#94a3b8"
                 />
