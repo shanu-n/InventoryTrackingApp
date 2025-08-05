@@ -14,22 +14,25 @@ import {
   Platform,
   Animated,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
-import { Camera } from 'expo-camera';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import inventoryService from '../services/inventoryService';
 
 const AddItemScreen = ({ navigation }) => {
-  // Camera and image states
-  const [hasCameraPermission, setHasCameraPermission] = useState(null);
+  // Camera permissions
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  
+  // Image states
   const [hasGalleryPermission, setHasGalleryPermission] = useState(null);
   const [showCamera, setShowCamera] = useState(false);
   const [capturedImage, setCapturedImage] = useState(null);
   const [showImageOptions, setShowImageOptions] = useState(true);
   const [showConfirmImage, setShowConfirmImage] = useState(false);
   const [showItemForm, setShowItemForm] = useState(false);
-  const [cameraType, setCameraType] = useState(Camera.Constants.Type.back);
+  const [cameraFacing, setCameraFacing] = useState('back'); // Changed from CameraType.back
   const [loading, setLoading] = useState(false);
   const [processingImage, setProcessingImage] = useState(false);
   
@@ -49,8 +52,25 @@ const AddItemScreen = ({ navigation }) => {
   const slideAnim = useRef(new Animated.Value(50)).current;
 
   useEffect(() => {
-    getPermissions();
-    animateIn();
+    // Request permissions on component mount
+    const setupPermissions = async () => {
+      try {
+        // Request camera permissions immediately
+        if (!cameraPermission?.granted) {
+          await requestCameraPermission();
+        }
+        
+        // Request gallery permissions
+        await getGalleryPermissions();
+        
+        // Start animations
+        animateIn();
+      } catch (error) {
+        console.error('Permission setup error:', error);
+      }
+    };
+
+    setupPermissions();
   }, []);
 
   const animateIn = () => {
@@ -68,19 +88,39 @@ const AddItemScreen = ({ navigation }) => {
     ]).start();
   };
 
-  const getPermissions = async () => {
-    const cameraStatus = await Camera.requestCameraPermissionsAsync();
-    setHasCameraPermission(cameraStatus.status === 'granted');
-    
-    const galleryStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    setHasGalleryPermission(galleryStatus.status === 'granted');
+  const getGalleryPermissions = async () => {
+    try {
+      const galleryStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      setHasGalleryPermission(galleryStatus.status === 'granted');
+    } catch (error) {
+      console.error('Gallery permission error:', error);
+      Alert.alert('Error', 'Failed to get gallery permissions');
+    }
   };
 
-  const handleTakePhoto = () => {
-    if (!hasCameraPermission) {
-      Alert.alert('Permission Required', 'Camera permission is required to take photos.');
-      return;
+  const handleTakePhoto = async () => {
+    // Check if we have permission
+    if (!cameraPermission?.granted) {
+      // Request permission
+      const permission = await requestCameraPermission();
+      if (!permission.granted) {
+        Alert.alert(
+          'Camera Permission Required', 
+          'This app needs camera access to take photos. Please enable camera permissions in your device settings.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Settings', onPress: () => {
+              // On iOS, this will open the app settings
+              if (Platform.OS === 'ios') {
+                Linking.openURL('app-settings:');
+              }
+            }}
+          ]
+        );
+        return;
+      }
     }
+    
     setShowImageOptions(false);
     setShowCamera(true);
   };
@@ -128,7 +168,6 @@ const AddItemScreen = ({ navigation }) => {
       try {
         const photo = await cameraRef.current.takePictureAsync({
           quality: 0.8,
-          base64: false,
         });
         
         // Clear states first
@@ -144,6 +183,7 @@ const AddItemScreen = ({ navigation }) => {
           setShowConfirmImage(true);
         }, 100);
       } catch (error) {
+        console.error('Take picture error:', error);
         Alert.alert('Error', 'Failed to take picture');
       }
     }
@@ -224,6 +264,7 @@ const AddItemScreen = ({ navigation }) => {
         Alert.alert('Error', result.error || 'Failed to add item');
       }
     } catch (error) {
+      console.error('Save item error:', error);
       Alert.alert('Error', 'Something went wrong while saving the item');
     } finally {
       setLoading(false);
@@ -261,6 +302,12 @@ const AddItemScreen = ({ navigation }) => {
   const handleClose = () => {
     resetAllStates();
     navigation.goBack();
+  };
+
+  const toggleCameraType = () => {
+    setCameraFacing(current => 
+      current === 'back' ? 'front' : 'back'
+    );
   };
 
   const renderImageOptions = () => (
@@ -326,11 +373,10 @@ const AddItemScreen = ({ navigation }) => {
   const renderCamera = () => (
     <Modal visible={showCamera} animationType="slide">
       <SafeAreaView style={styles.cameraContainer}>
-        <Camera
+        <CameraView
           ref={cameraRef}
           style={styles.camera}
-          type={cameraType}
-          ratio="4:3"
+          facing={cameraFacing}
         >
           <View style={styles.cameraOverlay}>
             <View style={styles.cameraHeader}>
@@ -348,13 +394,7 @@ const AddItemScreen = ({ navigation }) => {
               
               <TouchableOpacity
                 style={styles.cameraButton}
-                onPress={() => {
-                  setCameraType(
-                    cameraType === Camera.Constants.Type.back
-                      ? Camera.Constants.Type.front
-                      : Camera.Constants.Type.back
-                  );
-                }}
+                onPress={toggleCameraType}
               >
                 <Ionicons name="camera-reverse" size={24} color="#ffffff" />
               </TouchableOpacity>
@@ -366,7 +406,7 @@ const AddItemScreen = ({ navigation }) => {
               </TouchableOpacity>
             </View>
           </View>
-        </Camera>
+        </CameraView>
       </SafeAreaView>
     </Modal>
   );
@@ -523,12 +563,13 @@ const AddItemScreen = ({ navigation }) => {
     </Modal>
   );
 
-  if (hasCameraPermission === null || hasGalleryPermission === null) {
+  if (!cameraPermission) {
+    // Camera permissions are still loading
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2563eb" />
-          <Text style={styles.loadingText}>Requesting permissions...</Text>
+          <Text style={styles.loadingText}>Loading camera permissions...</Text>
         </View>
       </SafeAreaView>
     );
