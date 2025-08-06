@@ -1,59 +1,48 @@
 import React from 'react';
+import { ClerkProvider } from '@clerk/clerk-expo';
+import * as SecureStore from 'expo-secure-store';
+
 import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
-import { StatusBar } from 'expo-status-bar';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-// Import screens
-import { LoginScreen, InventoryScreen, AddItemScreen } from './src/screens';
-import EditItemScreen from './src/screens/EditItemScreen'; // Add this import
+import LoginScreen from './src/screens/LoginScreen';
+import InventoryScreen from './src/screens/InventoryScreen';
+import AddItemScreen from './src/screens/AddItemScreen';
+import EditItemScreen from './src/screens/EditItemScreen';
 
-const Stack = createStackNavigator();
+// 1. Setup SecureStore caching
+const tokenCache = {
+  async getToken(key) {
+    try {
+      return await SecureStore.getItemAsync(key);
+    } catch (err) {
+      return null;
+    }
+  },
+  async saveToken(key, value) {
+    try {
+      return await SecureStore.setItemAsync(key, value);
+    } catch (err) {
+      console.log('SecureStore Error:', err);
+    }
+  },
+};
 
+// 2. Stack Navigator
+const Stack = createNativeStackNavigator();
+
+// 3. App wrapped in ClerkProvider
 export default function App() {
   return (
-    <NavigationContainer>
-      <StatusBar style="auto" />
-      <Stack.Navigator 
-        initialRouteName="Login"
-        screenOptions={{
-          headerStyle: {
-            backgroundColor: '#2563eb',
-          },
-          headerTintColor: '#fff',
-          headerTitleStyle: {
-            fontWeight: 'bold',
-          },
-        }}
-      >
-        <Stack.Screen 
-          name="Login" 
-          component={LoginScreen}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen 
-          name="Inventory" 
-          component={InventoryScreen}
-          options={{ 
-            title: 'My Inventory',
-            headerLeft: () => null,
-            gestureEnabled: false,
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen 
-          name="AddItem" 
-          component={AddItemScreen}
-          options={{ title: 'Add New Item' }}
-        />
-        <Stack.Screen 
-          name="EditItemScreen" 
-          component={EditItemScreen}
-          options={{ 
-            title: 'Edit Item',
-            headerShown: false
-          }}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <ClerkProvider tokenCache={tokenCache} publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY}>
+      <NavigationContainer>
+        <Stack.Navigator initialRouteName="Login">
+          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="Inventory" component={InventoryScreen} />
+          <Stack.Screen name="AddItem" component={AddItemScreen} />
+          <Stack.Screen name="EditItem" component={EditItemScreen} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </ClerkProvider>
   );
 }

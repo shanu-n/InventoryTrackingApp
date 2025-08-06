@@ -1,7 +1,8 @@
 {
   "expo": {
-    "name": "InventoryTrackingApp",
-    "slug": "InventoryTrackingApp",
+    "name": "InventoryAppFixed",
+    "slug": "InventoryAppFixed",
+    "scheme": "inventoryapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -24,6 +25,10 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-web-browser"
+    ]
   }
 }

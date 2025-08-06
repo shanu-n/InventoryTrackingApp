@@ -133,7 +133,7 @@ const InventoryScreen = ({ navigation }) => {
           text: 'Edit', 
           onPress: () => {
             // Navigate to EditItemScreen with the item data
-            navigation.navigate('EditItemScreen', { item });
+            navigation.navigate('EditItem', { item });
           }
         },
         {
