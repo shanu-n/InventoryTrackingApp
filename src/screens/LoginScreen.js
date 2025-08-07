@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import { Image } from 'react-native';
+import logo from '../assets/logo.png'; // adjust path if needed
+
 import {
   View,
   Text,
@@ -71,53 +74,26 @@ export default function LoginScreen() {
   };
 
   return (
+
     <View style={styles.container}>
-      <Text style={styles.heading}>Login</Text>
+  <Image
+    source={logo}
+    style={styles.logo}
+  />
 
-      <TextInput
-        placeholder="Email"
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        style={styles.input}
-      />
-      <TextInput
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        style={styles.input}
-      />
+  <Text style={styles.heading}>Inventory App</Text>
 
-      <TouchableOpacity
-        style={styles.loginButton}
-        onPress={handleEmailLogin}
-        disabled={loadingEmail}
-      >
-        {loadingEmail ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.loginText}>Login</Text>
-        )}
-      </TouchableOpacity>
+  <TouchableOpacity
+    onPress={handleMicrosoftLogin}
+    disabled={oauthLoading}
+    style={[styles.oauthButton, oauthLoading && { opacity: 0.5 }]}
+  >
+    <Text style={styles.oauth}>
+      {oauthLoading ? 'Logging in...' : 'Login with Microsoft'}
+    </Text>
+  </TouchableOpacity>
+</View>
 
-      <Text style={styles.orText}>OR</Text>
-
-      <TouchableOpacity
-        onPress={handleMicrosoftLogin}
-        disabled={oauthLoading}
-        style={[styles.oauthButton, oauthLoading && { opacity: 0.5 }]}
-      >
-        <Text style={styles.oauth}>
-          {oauthLoading ? 'Opening Microsoft...' : 'Continue with Microsoft'}
-        </Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
-        <Text style={styles.signupText}>Don't have an account? Sign Up</Text>
-      </TouchableOpacity>
-    </View>
   );
 }
 
@@ -177,4 +153,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 15,
   },
+  logo: {
+    width: 160,     // reduced from 160
+    height: 100,     // reduced to make it more compact
+    resizeMode: 'contain',
+    alignSelf: 'center',
+    marginBottom: 10,
+  },
+  
 });
