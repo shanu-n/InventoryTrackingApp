@@ -1,5 +1,5 @@
 import { Buffer } from 'buffer';
-import { extractItemData } from '../utils/gptClient.js';
+import { extractItemData } from '../utils/Gemini.js';
 import fs from 'fs';
 
 /**
@@ -38,4 +38,3 @@ export async function parseImageLabel(imagePath) {
     throw err;
   }
 }
-

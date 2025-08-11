@@ -9,6 +9,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import InventoryScreen from './src/screens/InventoryScreen';
 import AddItemScreen from './src/screens/AddItemScreen';
 import EditItemScreen from './src/screens/EditItemScreen';
+import StatisticsScreen from './src/screens/StatisticsScreen';
 
 // 1. Setup SecureStore caching
 const tokenCache = {
@@ -41,6 +42,7 @@ export default function App() {
           <Stack.Screen name="Inventory" component={InventoryScreen} />
           <Stack.Screen name="AddItem" component={AddItemScreen} />
           <Stack.Screen name="EditItem" component={EditItemScreen} />
+          <Stack.Screen name="Statistics" component={StatisticsScreen} options={{ headerShown: false }} />
         </Stack.Navigator>
       </NavigationContainer>
     </ClerkProvider>

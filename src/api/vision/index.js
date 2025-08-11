@@ -1,31 +1,56 @@
+// src/api/vision/index.js
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { parseImageLabel } = require('./parse');
-
 
 const router = express.Router();
-const upload = multer({ dest: 'uploads/' });
 
-// POST /api/vision
+// Simple ping for reachability checks
+router.get('/ping', (_req, res) => res.json({ ok: true }));
+
+// Ensure uploads dir exists
+const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+// Save uploads with timestamp + original extension
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname) || '.jpg';
+    cb(null, `${Date.now()}${ext}`);
+  },
+});
+const upload = multer({ storage });
+
 router.post('/', upload.single('image'), async (req, res) => {
+  console.log('📩 /api/vision hit', {
+    hasFile: !!req.file,
+    contentType: req.headers['content-type'],
+  });
+
   try {
-    const imagePath = path.resolve(req.file.path);
-    console.log('📥 Image received at:', imagePath); // ✅ add this
+    if (!req.file) return res.status(400).json({ error: 'No file received' });
 
-    const result = await parseImageLabel(imagePath);
-    console.log('✅ GPT Result:', result); // ✅ log result
+    // Support your ESM parse.js by attempting CJS first, then ESM dynamic import
+    let parseImageLabel;
+    try {
+      ({ parseImageLabel } = require('./parse'));
+    } catch {
+      ({ parseImageLabel } = await import('./parse.js'));
+    }
 
-    // Cleanup uploaded file
-    fs.unlinkSync(imagePath);
+    const parsed = await parseImageLabel(req.file.path);
 
-    res.json(result);
-  } catch (error) {
-    console.error('❌ Error in vision route:', error); // ✅ log full error
-    res.status(500).json({ error: 'Failed to extract text from image' });
+    const baseUrl =
+      process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 8000}`;
+    const imageUrl = `${baseUrl}/uploads/${path.basename(req.file.path)}`;
+
+    return res.json({ ...parsed, imageUrl });
+  } catch (err) {
+    console.error('❌ Error in /api/vision:', err);
+    return res.status(500).json({ error: 'Failed to extract text from image' });
   }
 });
-
 
 module.exports = router;

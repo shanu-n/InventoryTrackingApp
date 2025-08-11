@@ -1,345 +1,250 @@
+// src/services/inventoryService.js
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Inventory service for managing items
 class InventoryService {
   constructor() {
-    this.baseURL = 'https://your-api-endpoint.com/api'; // Replace with your actual API
+    /** @private */
+    this.userId = 'default_user'; // set from UI after Clerk login
   }
 
-  // Get current user or create a default one
-  getCurrentUser() {
-    try {
-      // Try to import authService dynamically to avoid dependency issues
-      const authService = require('./authService').default;
-      const user = authService.getCurrentUser();
-      
-      if (user && user.id) {
-        return user;
-      }
-      
-      // Fallback to a default user if authService doesn't work
-      return { id: 'default_user' };
-    } catch (error) {
-      console.warn('AuthService not available, using default user:', error);
-      // Fallback to a default user
-      return { id: 'default_user' };
-    }
+  /** Call this right after you know the Clerk user id */
+  setUserId(id) {
+    this.userId = id || 'default_user';
   }
 
-  // Get all inventory items for current user
+  /** @private */
+  storageKey() {
+    return `inventory_${this.userId}`;
+  }
+
+  // ---- helpers ----
+  _assertUser() {
+    if (!this.userId) throw new Error('User not set');
+  }
+
+  _assertDate(yyyyMmDd) {
+    const rx = /^\d{4}-\d{2}-\d{2}$/;
+    if (!rx.test(yyyyMmDd)) throw new Error('Manufacture date must be in YYYY-MM-DD format');
+
+    const d = new Date(yyyyMmDd);
+    if (Number.isNaN(d.getTime())) throw new Error('Invalid manufacture date');
+
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+    if (d > endOfToday) throw new Error('Manufacture date cannot be in the future');
+  }
+
+  /** Normalize any legacy/saved item shape */
+  _normalizeItem(it = {}) {
+    const unsplashDemo =
+      'https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=400&h=400&fit=crop';
+
+    // prefer camelCase, keep snake_case only for backward compat
+    const imageUrl = it.imageUrl ?? it.image_url ?? null;
+
+    return {
+      id: it.id,
+      title: typeof it.title === 'string' ? it.title : '',
+      description: typeof it.description === 'string' ? it.description : '',
+      item_id: typeof it.item_id === 'string' ? it.item_id : '',
+      vendor: typeof it.vendor === 'string' ? it.vendor : '',
+      manufacture_date: it.manufacture_date,
+      // Drop the old demo image if present
+      imageUrl: imageUrl === unsplashDemo ? null : imageUrl ?? null,
+      created_at: it.created_at || new Date().toISOString(),
+      updated_at: it.updated_at || new Date().toISOString(),
+    };
+  }
+
+  // ---- CRUD ----
+
+  /** Get all items for the current user */
   async getItems() {
     try {
-      const user = this.getCurrentUser();
-      if (!user || !user.id) {
-        throw new Error('User not authenticated');
-      }
-
-      // For now, return mock data stored locally
-      const storedItems = await AsyncStorage.getItem(`inventory_${user.id}`);
-      
-      if (storedItems) {
-        const items = JSON.parse(storedItems);
-        return {
-          success: true,
-          data: Array.isArray(items) ? items : [],
-        };
-      }
-
-      // Return empty array if no items stored
-      return {
-        success: true,
-        data: [],
-      };
+      if (!this.userId) throw new Error('User not set');
+      const raw = await AsyncStorage.getItem(this.storageKey());
+      const items = raw ? JSON.parse(raw) : [];
+      const normalized = Array.isArray(items) ? items.map((it) => this._normalizeItem(it)) : [];
+      return { success: true, data: normalized };
     } catch (error) {
       console.error('getItems error:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to load items',
-      };
+      return { success: false, error: error.message || 'Failed to load items' };
     }
   }
 
-  // Add new inventory item
+  /** Add a new item */
   async addItem(itemData) {
     try {
-      const user = this.getCurrentUser();
-      if (!user || !user.id) {
-        throw new Error('User not authenticated');
-      }
+      this._assertUser();
 
       // Validate required fields
-      const requiredFields = ['title', 'description', 'item_id', 'vendor', 'manufacture_date'];
-      for (const field of requiredFields) {
-        if (!itemData[field] || !itemData[field].toString().trim()) {
-          throw new Error(`${field.replace('_', ' ')} is required`);
+      const required = ['title', 'description', 'item_id', 'vendor', 'manufacture_date'];
+      for (const f of required) {
+        if (!itemData[f] || !itemData[f].toString().trim()) {
+          throw new Error(`${f.replace('_', ' ')} is required`);
         }
       }
 
-      // Get existing items
-      const existingItems = await this.getItems();
-      const items = existingItems.success ? existingItems.data : [];
+      // Validate date
+      this._assertDate(itemData.manufacture_date);
 
-      // Ensure items is an array
-      const itemsArray = Array.isArray(items) ? items : [];
+      // Load existing
+      const existing = await this.getItems();
+      const arr = existing.success && Array.isArray(existing.data) ? existing.data : [];
 
-      // Check for duplicate item_id
-      const isDuplicate = itemsArray.some(item => item.item_id === itemData.item_id.trim());
-      if (isDuplicate) {
-        throw new Error('Item ID already exists');
-      }
+      // Unique item_id
+      const duplicate = arr.some((it) => it.item_id === itemData.item_id.trim());
+      if (duplicate) throw new Error('Item ID already exists');
 
-      // Validate date format
-      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!dateRegex.test(itemData.manufacture_date)) {
-        throw new Error('Manufacture date must be in YYYY-MM-DD format');
-      }
+      // Accept camelCase or snake_case from callers
+      const incomingImageUrl =
+        itemData.imageUrl ?? itemData.image_url ?? null; // <-- no fallback demo
 
-      // Validate that the date is not in the future
-      const manufactureDate = new Date(itemData.manufacture_date);
-      const today = new Date();
-      today.setHours(23, 59, 59, 999); // Set to end of today
-      
-      if (manufactureDate > today) {
-        throw new Error('Manufacture date cannot be in the future');
-      }
-
-      // Validate that the date is valid
-      if (isNaN(manufactureDate.getTime())) {
-        throw new Error('Invalid manufacture date');
-      }
-
-      // Create new item
+      // Build new item
       const newItem = {
-        id: Date.now(), // In real app, this would be generated by backend
+        id: Date.now(),
         title: itemData.title.toString().trim(),
         description: itemData.description.toString().trim(),
         item_id: itemData.item_id.toString().trim(),
         vendor: itemData.vendor.toString().trim(),
         manufacture_date: itemData.manufacture_date,
-        image_url: itemData.image_url || 'https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=400&h=400&fit=crop', // Default image if none provided
+        imageUrl: incomingImageUrl, // <-- camelCase
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
 
-      // Add to items array
-      itemsArray.unshift(newItem); // Add to beginning
+      // Persist (store already-normalized shape)
+      const toSave = [newItem, ...arr];
+      await AsyncStorage.setItem(this.storageKey(), JSON.stringify(toSave));
 
-      // Save to local storage
-      await AsyncStorage.setItem(`inventory_${user.id}`, JSON.stringify(itemsArray));
-
-      return {
-        success: true,
-        data: newItem,
-      };
+      return { success: true, data: newItem };
     } catch (error) {
       console.error('addItem error:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to add item',
-      };
+      return { success: false, error: error.message || 'Failed to add item' };
     }
   }
 
-  // Update inventory item
+  /** Update an existing item */
   async updateItem(itemId, updates) {
     try {
-      const user = this.getCurrentUser();
-      if (!user || !user.id) {
-        throw new Error('User not authenticated');
+      this._assertUser();
+
+      const existing = await this.getItems();
+      if (!existing.success) throw new Error('Failed to load items');
+
+      const items = Array.isArray(existing.data) ? existing.data : [];
+      const idx = items.findIndex((it) => it.id === itemId);
+      if (idx === -1) throw new Error('Item not found');
+
+      // Ensure unique item_id if changing
+      if (updates.item_id && updates.item_id !== items[idx].item_id) {
+        const dup = items.some((it, i) => i !== idx && it.item_id === updates.item_id);
+        if (dup) throw new Error('Item ID already exists');
       }
 
-      // Get existing items
-      const existingItems = await this.getItems();
-      if (!existingItems.success) {
-        throw new Error('Failed to load items');
+      // Validate date if present
+      if (updates.manufacture_date) this._assertDate(updates.manufacture_date);
+
+      // Normalize incoming image key and trim strings
+      const clean = { ...updates };
+      if (clean.image_url && !clean.imageUrl) {
+        clean.imageUrl = clean.image_url;
+        delete clean.image_url;
       }
-
-      const items = Array.isArray(existingItems.data) ? existingItems.data : [];
-      const itemIndex = items.findIndex(item => item.id === itemId);
-
-      if (itemIndex === -1) {
-        throw new Error('Item not found');
-      }
-
-      // Validate item_id uniqueness if it's being updated
-      if (updates.item_id && updates.item_id !== items[itemIndex].item_id) {
-        const isDuplicate = items.some((item, index) => 
-          index !== itemIndex && item.item_id === updates.item_id
-        );
-        if (isDuplicate) {
-          throw new Error('Item ID already exists');
-        }
-      }
-
-      // Validate date format if manufacture_date is being updated
-      if (updates.manufacture_date) {
-        const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-        if (!dateRegex.test(updates.manufacture_date)) {
-          throw new Error('Manufacture date must be in YYYY-MM-DD format');
-        }
-
-        const manufactureDate = new Date(updates.manufacture_date);
-        const today = new Date();
-        today.setHours(23, 59, 59, 999);
-        
-        if (manufactureDate > today) {
-          throw new Error('Manufacture date cannot be in the future');
-        }
-
-        if (isNaN(manufactureDate.getTime())) {
-          throw new Error('Invalid manufacture date');
-        }
-      }
-
-      // Clean up string fields
-      const cleanUpdates = { ...updates };
-      ['title', 'description', 'item_id', 'vendor'].forEach(field => {
-        if (cleanUpdates[field] && typeof cleanUpdates[field] === 'string') {
-          cleanUpdates[field] = cleanUpdates[field].trim();
-        }
+      ['title', 'description', 'item_id', 'vendor', 'imageUrl'].forEach((f) => {
+        if (typeof clean[f] === 'string') clean[f] = clean[f].trim();
       });
 
-      // Update item
-      items[itemIndex] = {
-        ...items[itemIndex],
-        ...cleanUpdates,
+      items[idx] = {
+        ...items[idx],
+        ...clean,
         updated_at: new Date().toISOString(),
       };
 
-      // Save back to storage
-      await AsyncStorage.setItem(`inventory_${user.id}`, JSON.stringify(items));
-
-      return {
-        success: true,
-        data: items[itemIndex],
-      };
+      await AsyncStorage.setItem(this.storageKey(), JSON.stringify(items));
+      return { success: true, data: items[idx] };
     } catch (error) {
       console.error('updateItem error:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to update item',
-      };
+      return { success: false, error: error.message || 'Failed to update item' };
     }
   }
 
-  // Delete inventory item
+  /** Delete an item */
   async deleteItem(itemId) {
     try {
-      const user = this.getCurrentUser();
-      if (!user || !user.id) {
-        throw new Error('User not authenticated');
-      }
+      this._assertUser();
 
-      // Get existing items
-      const existingItems = await this.getItems();
-      if (!existingItems.success) {
-        throw new Error('Failed to load items');
-      }
+      const existing = await this.getItems();
+      if (!existing.success) throw new Error('Failed to load items');
 
-      const items = Array.isArray(existingItems.data) ? existingItems.data : [];
-      const filteredItems = items.filter(item => item.id !== itemId);
+      const items = Array.isArray(existing.data) ? existing.data : [];
+      const filtered = items.filter((it) => it.id !== itemId);
+      if (filtered.length === items.length) throw new Error('Item not found');
 
-      if (filteredItems.length === items.length) {
-        throw new Error('Item not found');
-      }
-
-      // Save filtered items
-      await AsyncStorage.setItem(`inventory_${user.id}`, JSON.stringify(filteredItems));
-
-      return {
-        success: true,
-        message: 'Item deleted successfully',
-      };
+      await AsyncStorage.setItem(this.storageKey(), JSON.stringify(filtered));
+      return { success: true, message: 'Item deleted successfully' };
     } catch (error) {
       console.error('deleteItem error:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to delete item',
-      };
+      return { success: false, error: error.message || 'Failed to delete item' };
     }
   }
 
-  // Search items
+  /** Text search across fields */
   async searchItems(query) {
     try {
       const result = await this.getItems();
-      if (!result.success) {
-        return result;
-      }
+      if (!result.success) return result;
 
+      const q = (query || '').toLowerCase();
       const items = Array.isArray(result.data) ? result.data : [];
-      const searchQuery = query.toLowerCase();
 
-      const filteredItems = items.filter(item =>
-        item.title.toLowerCase().includes(searchQuery) ||
-        item.item_id.toLowerCase().includes(searchQuery) ||
-        item.vendor.toLowerCase().includes(searchQuery) ||
-        item.description.toLowerCase().includes(searchQuery)
+      const filtered = items.filter((it) =>
+        [it.title, it.item_id, it.vendor, it.description]
+          .filter(Boolean)
+          .some((v) => v.toLowerCase().includes(q))
       );
 
-      return {
-        success: true,
-        data: filteredItems,
-      };
+      return { success: true, data: filtered };
     } catch (error) {
       console.error('searchItems error:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to search items',
-      };
+      return { success: false, error: error.message || 'Failed to search items' };
     }
   }
 
-  // Get item by ID
+  /** Get a single item */
   async getItemById(itemId) {
     try {
       const result = await this.getItems();
-      if (!result.success) {
-        return result;
-      }
+      if (!result.success) return result;
 
       const items = Array.isArray(result.data) ? result.data : [];
-      const item = items.find(item => item.id === itemId);
-      if (!item) {
-        throw new Error('Item not found');
-      }
+      const item = items.find((it) => it.id === itemId);
+      if (!item) throw new Error('Item not found');
 
-      return {
-        success: true,
-        data: item,
-      };
+      return { success: true, data: item };
     } catch (error) {
       console.error('getItemById error:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to get item',
-      };
+      return { success: false, error: error.message || 'Failed to get item' };
     }
   }
 
-  // Get inventory statistics
+  /** Basic stats */
   async getInventoryStats() {
     try {
       const result = await this.getItems();
-      if (!result.success) {
-        return result;
-      }
+      if (!result.success) return result;
 
       const items = Array.isArray(result.data) ? result.data : [];
-      const vendors = [...new Set(items.map(item => item.vendor))];
-      const totalItems = items.length;
-      
-      // Calculate items added this month
+      const vendors = [...new Set(items.map((it) => it.vendor))];
+
       const thisMonth = new Date();
       thisMonth.setDate(1);
-      const itemsThisMonth = items.filter(item => 
-        new Date(item.created_at) >= thisMonth
-      ).length;
+      const itemsThisMonth = items.filter((it) => new Date(it.created_at) >= thisMonth).length;
 
       return {
         success: true,
         data: {
-          totalItems,
+          totalItems: items.length,
           totalVendors: vendors.length,
           itemsThisMonth,
           vendors,
@@ -347,222 +252,76 @@ class InventoryService {
       };
     } catch (error) {
       console.error('getInventoryStats error:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to get inventory stats',
-      };
+      return { success: false, error: error.message || 'Failed to get inventory stats' };
     }
   }
 
-  // Validate item data
+  /** Validate an item payload without saving */
   validateItemData(itemData) {
     const errors = {};
-    
-    // Required field validation
-    const requiredFields = {
+    const required = {
       title: 'Title',
-      description: 'Description', 
+      description: 'Description',
       item_id: 'Item ID',
       vendor: 'Vendor',
-      manufacture_date: 'Manufacture Date'
+      manufacture_date: 'Manufacture Date',
     };
 
-    Object.entries(requiredFields).forEach(([field, label]) => {
-      if (!itemData[field] || !itemData[field].toString().trim()) {
-        errors[field] = `${label} is required`;
+    Object.entries(required).forEach(([f, label]) => {
+      if (!itemData[f] || !itemData[f].toString().trim()) {
+        errors[f] = `${label} is required`;
       }
     });
 
-    // Date format validation
     if (itemData.manufacture_date) {
-      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!dateRegex.test(itemData.manufacture_date)) {
-        errors.manufacture_date = 'Date must be in YYYY-MM-DD format';
-      } else {
-        const manufactureDate = new Date(itemData.manufacture_date);
-        const today = new Date();
-        today.setHours(23, 59, 59, 999);
-        
-        if (manufactureDate > today) {
-          errors.manufacture_date = 'Manufacture date cannot be in the future';
-        }
-        
-        // Check if date is valid
-        if (isNaN(manufactureDate.getTime())) {
-          errors.manufacture_date = 'Invalid date';
-        }
+      try {
+        this._assertDate(itemData.manufacture_date);
+      } catch (e) {
+        errors.manufacture_date = e.message;
       }
     }
 
-    // Item ID format validation (alphanumeric and some special chars)
     if (itemData.item_id) {
-      const itemIdRegex = /^[A-Za-z0-9\-_]+$/;
-      if (!itemIdRegex.test(itemData.item_id.toString().trim())) {
-        errors.item_id = 'Item ID can only contain letters, numbers, hyphens, and underscores';
-      }
+      const ok = /^[A-Za-z0-9\-_]+$/.test(itemData.item_id.toString().trim());
+      if (!ok) errors.item_id = 'Item ID can only contain letters, numbers, hyphens, and underscores';
     }
 
-    return {
-      isValid: Object.keys(errors).length === 0,
-      errors
-    };
+    return { isValid: Object.keys(errors).length === 0, errors };
   }
 
-  // Seed initial data for demo
-  async seedDemoData() {
-    try {
-      const user = this.getCurrentUser();
-      if (!user || !user.id) {
-        throw new Error('User not authenticated');
-      }
-
-      const demoItems = [
-        {
-          id: 1,
-          item_id: 'ITM001',
-          title: 'MacBook Pro 16"',
-          description: 'High-performance laptop for development work',
-          vendor: 'Apple Inc.',
-          manufacture_date: '2023-10-15',
-          image_url: 'https://images.unsplash.com/photo-1541807084-5c52b6b3adef?w=400&h=400&fit=crop',
-          created_at: '2024-01-15T10:30:00Z',
-          updated_at: '2024-01-15T10:30:00Z',
-        },
-        {
-          id: 2,
-          item_id: 'ITM002',
-          title: 'iPhone 15 Pro',
-          description: 'Latest smartphone with advanced camera system',
-          vendor: 'Apple Inc.',
-          manufacture_date: '2023-09-20',
-          image_url: 'https://images.unsplash.com/photo-1592750475338-74b7b21085ab?w=400&h=400&fit=crop',
-          created_at: '2024-01-16T14:20:00Z',
-          updated_at: '2024-01-16T14:20:00Z',
-        },
-        {
-          id: 3,
-          item_id: 'ITM003',
-          title: 'Dell UltraSharp Monitor',
-          description: '32-inch 4K monitor for professional work',
-          vendor: 'Dell Technologies',
-          manufacture_date: '2023-11-08',
-          image_url: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=400&h=400&fit=crop',
-          created_at: '2024-01-17T09:15:00Z',
-          updated_at: '2024-01-17T09:15:00Z',
-        },
-        {
-          id: 4,
-          item_id: 'ITM004',
-          title: 'Sony WH-1000XM5',
-          description: 'Premium noise-canceling headphones',
-          vendor: 'Sony Corporation',
-          manufacture_date: '2023-08-12',
-          image_url: 'https://images.unsplash.com/photo-1583394838336-acd977736f90?w=400&h=400&fit=crop',
-          created_at: '2024-01-18T16:45:00Z',
-          updated_at: '2024-01-18T16:45:00Z',
-        },
-        {
-          id: 5,
-          item_id: 'ITM005',
-          title: 'Canon EOS R5',
-          description: 'Professional mirrorless camera',
-          vendor: 'Canon Inc.',
-          manufacture_date: '2023-07-25',
-          image_url: 'https://images.unsplash.com/photo-1606983340126-99ab4feaa64a?w=400&h=400&fit=crop',
-          created_at: '2024-01-19T11:30:00Z',
-          updated_at: '2024-01-19T11:30:00Z',
-        },
-        {
-          id: 6,
-          item_id: 'ITM006',
-          title: 'iPad Pro 12.9"',
-          description: 'Powerful tablet for creative professionals',
-          vendor: 'Apple Inc.',
-          manufacture_date: '2023-06-10',
-          image_url: 'https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=400&h=400&fit=crop',
-          created_at: '2024-01-20T13:25:00Z',
-          updated_at: '2024-01-20T13:25:00Z',
-        },
-      ];
-
-      await AsyncStorage.setItem(`inventory_${user.id}`, JSON.stringify(demoItems));
-
-      return {
-        success: true,
-        data: demoItems,
-      };
-    } catch (error) {
-      console.error('seedDemoData error:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to seed demo data',
-      };
-    }
-  }
-
-  // Clear all inventory data (for testing)
+  /** Clear all items for current user */
   async clearAllData() {
     try {
-      const user = this.getCurrentUser();
-      if (!user || !user.id) {
-        throw new Error('User not authenticated');
-      }
-
-      await AsyncStorage.removeItem(`inventory_${user.id}`);
-
-      return {
-        success: true,
-        message: 'All inventory data cleared',
-      };
+      this._assertUser();
+      await AsyncStorage.removeItem(this.storageKey());
+      return { success: true, message: 'All inventory data cleared' };
     } catch (error) {
       console.error('clearAllData error:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to clear data',
-      };
+      return { success: false, error: error.message || 'Failed to clear data' };
     }
   }
 
-  // Generate next available item ID
+  /** Generate next ID like ITM001 */
   async generateNextItemId() {
     try {
       const result = await this.getItems();
-      if (!result.success) {
-        return {
-          success: false,
-          error: 'Failed to load existing items'
-        };
-      }
+      if (!result.success) return { success: false, error: 'Failed to load items' };
 
       const items = Array.isArray(result.data) ? result.data : [];
-      let nextNumber = 1;
-
-      // Find the highest existing number
-      items.forEach(item => {
-        const match = item.item_id.match(/^ITM(\d+)$/);
-        if (match) {
-          const num = parseInt(match[1], 10);
-          if (num >= nextNumber) {
-            nextNumber = num + 1;
-          }
+      let next = 1;
+      items.forEach((it) => {
+        const m = it.item_id && it.item_id.match(/^ITM(\d+)$/);
+        if (m) {
+          const n = parseInt(m[1], 10);
+          if (n >= next) next = n + 1;
         }
       });
-
-      const nextItemId = `ITM${nextNumber.toString().padStart(3, '0')}`;
-
-      return {
-        success: true,
-        data: nextItemId
-      };
+      return { success: true, data: `ITM${String(next).padStart(3, '0')}` };
     } catch (error) {
       console.error('generateNextItemId error:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to generate item ID'
-      };
+      return { success: false, error: error.message || 'Failed to generate item ID' };
     }
   }
 }
 
-// Export a singleton instance
 export default new InventoryService();

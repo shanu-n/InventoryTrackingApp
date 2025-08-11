@@ -13,7 +13,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Modal,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -25,16 +24,18 @@ const AddItemScreen = () => {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
 
-  const [currentStep, setCurrentStep] = useState('photo');
-  const [capturedImage, setCapturedImage] = useState(null);
+  const [currentStep, setCurrentStep] = useState('photo'); // 'photo' | 'camera' | 'preview' | 'form'
+  const [capturedImage, setCapturedImage] = useState(null); // preview image URI (camera or gallery)
   const [loading, setLoading] = useState(false);
 
+  // ✅ include imageUrl so we can persist it
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     item_id: '',
     vendor: '',
     manufacture_date: '',
+    imageUrl: null, // <— important
   });
 
   const openCamera = async () => {
@@ -48,8 +49,10 @@ const AddItemScreen = () => {
 
   const takePicture = async () => {
     if (cameraRef.current) {
-      const photo = await cameraRef.current.takePictureAsync({ base64: true });
+      const photo = await cameraRef.current.takePictureAsync({ base64: false });
+      // save in preview + form
       setCapturedImage(photo.uri);
+      setFormData(prev => ({ ...prev, imageUrl: photo.uri }));
       setCurrentStep('preview');
     }
   };
@@ -60,31 +63,40 @@ const AddItemScreen = () => {
       allowsEditing: true,
       quality: 1,
     });
-
+  
     if (!result.canceled) {
-      setCapturedImage(result.assets[0].uri);
+      const pickedUri = result.assets?.[0]?.uri;
+      setCapturedImage(pickedUri);
+      setFormData(prev => ({ ...prev, imageUrl: pickedUri })); // ✅
       setCurrentStep('preview');
     }
   };
+  
 
   const handleUsePhoto = async () => {
-    if (!capturedImage) {
+    const imageUri = capturedImage || formData.imageUrl;
+    if (!imageUri) {
       Alert.alert('No image selected');
       return;
     }
-
+  
     try {
       setLoading(true);
-      const extractedData = await analyzeImage(capturedImage);
-
-      setFormData({
-        title: extractedData.title || '',
-        description: extractedData.description || '',
-        item_id: extractedData.item_id || '',
-        vendor: extractedData.vendor || '',
-        manufacture_date: extractedData.manufacture_date || '',
-      });
-
+  
+      // 🔑 Call Vision API — it returns parsed fields + hosted imageUrl
+      const extractedData = await analyzeImage(imageUri);
+  
+      setFormData(prev => ({
+        ...prev,
+        title: extractedData.title || prev.title || '',
+        description: extractedData.description || prev.description || '',
+        item_id: extractedData.item_id || prev.item_id || '',
+        vendor: extractedData.vendor || prev.vendor || '',
+        manufacture_date: extractedData.manufacture_date || prev.manufacture_date || '',
+        // 👇 MOST IMPORTANT: use server-hosted URL if present
+        imageUrl: extractedData.imageUrl || prev.imageUrl || imageUri,
+      }));
+  
       setCurrentStep('form');
     } catch (error) {
       Alert.alert('Error', 'Failed to extract data from the image.');
@@ -93,10 +105,19 @@ const AddItemScreen = () => {
       setLoading(false);
     }
   };
+  
 
   const handleSubmit = async () => {
     try {
-      await inventoryService.addItem(formData);
+      await inventoryService.addItem({
+        title: formData.title,
+        description: formData.description,
+        item_id: formData.item_id,
+        vendor: formData.vendor,
+        manufacture_date: formData.manufacture_date,
+        imageUrl: formData.imageUrl || null, // ✅ keep this
+      });
+  
       Alert.alert('Success', 'Item added successfully!');
       setCapturedImage(null);
       setFormData({
@@ -105,6 +126,7 @@ const AddItemScreen = () => {
         item_id: '',
         vendor: '',
         manufacture_date: '',
+        imageUrl: null,
       });
       setCurrentStep('photo');
     } catch (error) {
@@ -112,6 +134,7 @@ const AddItemScreen = () => {
       console.error(error);
     }
   };
+  
 
   return (
     <SafeAreaView style={styles.container}>
@@ -163,7 +186,9 @@ const AddItemScreen = () => {
             <>
               <Text style={styles.heading}>Add Item Details</Text>
 
-              <Image source={{ uri: capturedImage }} style={styles.previewImage} />
+              {!!formData.imageUrl && (
+                <Image source={{ uri: formData.imageUrl }} style={styles.previewImage} />
+              )}
 
               <Text style={styles.label}>Item Title *</Text>
               <TextInput
