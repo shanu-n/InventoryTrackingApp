@@ -1,5 +1,11 @@
 // src/services/inventoryService.js
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createClient } from '@supabase/supabase-js';
+
+// Initialize Supabase client
+const supabaseUrl = 'https://ogqynkptkucfrbpiodzh.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ncXlua3B0a3VjZnJicGlvZHpoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NDA4Mjk5OSwiZXhwIjoyMDY5NjU4OTk5fQ.YaOwehhanHig5lI-4Fk7QhlIiJHNia4PXW-8IlEtq8A'
+
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 class InventoryService {
   constructor() {
@@ -10,11 +16,6 @@ class InventoryService {
   /** Call this right after you know the Clerk user id */
   setUserId(id) {
     this.userId = id || 'default_user';
-  }
-
-  /** @private */
-  storageKey() {
-    return `inventory_${this.userId}`;
   }
 
   // ---- helpers ----
@@ -34,14 +35,109 @@ class InventoryService {
     if (d > endOfToday) throw new Error('Manufacture date cannot be in the future');
   }
 
+  /**
+   * Check if a URL is a local file URI
+   */
+  _isLocalUri(url) {
+    if (!url) return false;
+    return url.startsWith('file://') || url.startsWith('content://') || url.startsWith('ph://');
+  }
+
+  /**
+   * Check if a URL is already a Supabase hosted URL
+   */
+  _isSupabaseUrl(url) {
+    if (!url) return false;
+    return url.includes('supabase.co') || url.includes(supabaseUrl);
+  }
+
+  /**
+   * Upload image to Supabase storage bucket
+   * @param {string|object} fileInput - Either a local URI string or a picker object { uri, name, type }
+   * @param {string} [fileName] - Optional filename if fileInput is a URI string
+   * @returns {Promise<{success: boolean, publicUrl?: string, path?: string, error?: string}>}
+   */
+  async uploadImage(fileInput, fileName) {
+    try {
+      this._assertUser();
+
+      let uri, name, type;
+
+      if (typeof fileInput === 'string') {
+        // Local URI string
+        uri = fileInput;
+        name = fileName || `file_${Date.now()}.jpg`;
+        type = `image/jpeg`;
+      } else if (fileInput?.uri) {
+        // Picker object
+        uri = fileInput.uri;
+        name = fileInput.name || `file_${Date.now()}.jpg`;
+        type = fileInput.type || 'image/jpeg';
+      } else {
+        throw new Error('Invalid file input');
+      }
+
+      // Prefix filename with userId for uniqueness
+      const uniqueFileName = `${this.userId}/${Date.now()}_${name}`;
+
+      // Convert local URI to Blob
+      const response = await fetch(uri);
+      const blob = await response.blob();
+
+      // Upload to Supabase
+      const { data, error } = await supabase.storage
+        .from('inventory_images')
+        .upload(uniqueFileName, blob, {
+          cacheControl: '3600',
+          contentType: type,
+          upsert: false,
+        });
+
+      if (error) throw error;
+
+      // Get public URL
+      const { data: publicUrlData } = supabase.storage
+        .from('inventory_images')
+        .getPublicUrl(data.path);
+
+      return {
+        success: true,
+        publicUrl: publicUrlData.publicUrl,
+        path: data.path,
+      };
+    } catch (err) {
+      console.error('uploadImage error:', err);
+      return { success: false, error: err.message || 'Failed to upload image' };
+    }
+  }
+
+  /**
+   * Delete image from Supabase storage
+   * @param {string} imagePath - Storage path of the image
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  async deleteImage(imagePath) {
+    try {
+      if (!imagePath) return { success: true }; // No image to delete
+
+      const { error } = await supabase.storage
+        .from('inventory_images')
+        .remove([imagePath]);
+
+      if (error) throw error;
+
+      return { success: true };
+    } catch (error) {
+      console.error('deleteImage error:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to delete image'
+      };
+    }
+  }
+
   /** Normalize any legacy/saved item shape */
   _normalizeItem(it = {}) {
-    const unsplashDemo =
-      'https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=400&h=400&fit=crop';
-
-    // prefer camelCase, keep snake_case only for backward compat
-    const imageUrl = it.imageUrl ?? it.image_url ?? null;
-
     return {
       id: it.id,
       title: typeof it.title === 'string' ? it.title : '',
@@ -49,22 +145,28 @@ class InventoryService {
       item_id: typeof it.item_id === 'string' ? it.item_id : '',
       vendor: typeof it.vendor === 'string' ? it.vendor : '',
       manufacture_date: it.manufacture_date,
-      // Drop the old demo image if present
-      imageUrl: imageUrl === unsplashDemo ? null : imageUrl ?? null,
+      imageUrl: it.image_url || it.imageUrl || null, // Handle both naming conventions
+      imagePath: it.image_path || it.imagePath || null, // Store the storage path for deletion
       created_at: it.created_at || new Date().toISOString(),
       updated_at: it.updated_at || new Date().toISOString(),
+      user_id: it.user_id || this.userId,
     };
   }
-
-  // ---- CRUD ----
 
   /** Get all items for the current user */
   async getItems() {
     try {
       if (!this.userId) throw new Error('User not set');
-      const raw = await AsyncStorage.getItem(this.storageKey());
-      const items = raw ? JSON.parse(raw) : [];
-      const normalized = Array.isArray(items) ? items.map((it) => this._normalizeItem(it)) : [];
+      
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .eq('user_id', this.userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const normalized = Array.isArray(data) ? data.map((it) => this._normalizeItem(it)) : [];
       return { success: true, data: normalized };
     } catch (error) {
       console.error('getItems error:', error);
@@ -84,40 +186,88 @@ class InventoryService {
           throw new Error(`${f.replace('_', ' ')} is required`);
         }
       }
-
+      
       // Validate date
       this._assertDate(itemData.manufacture_date);
 
-      // Load existing
-      const existing = await this.getItems();
-      const arr = existing.success && Array.isArray(existing.data) ? existing.data : [];
+      // Check for duplicate item_id
+      const { data: existing, error: checkError } = await supabase
+        .from('inventory_items')
+        .select('item_id')
+        .eq('user_id', this.userId)
+        .eq('item_id', itemData.item_id.trim())
+        .single();
 
-      // Unique item_id
-      const duplicate = arr.some((it) => it.item_id === itemData.item_id.trim());
-      if (duplicate) throw new Error('Item ID already exists');
+      if (checkError && checkError.code !== 'PGRST116') {
+        throw checkError;
+      }
 
-      // Accept camelCase or snake_case from callers
-      const incomingImageUrl =
-        itemData.imageUrl ?? itemData.image_url ?? null; // <-- no fallback demo
+      if (existing) {
+        throw new Error('Item ID already exists');
+      }
 
-      // Build new item
+      let imageUrl = null;
+      let imagePath = null;
+
+      // ✅ Handle image - check if it's already hosted or needs upload
+      if (itemData.imageUrl) {
+        if (this._isSupabaseUrl(itemData.imageUrl)) {
+          // ✅ Already a hosted Supabase URL from vision API
+          imageUrl = itemData.imageUrl;
+          console.log('✅ Using hosted image URL:', imageUrl);
+        } else if (this._isLocalUri(itemData.imageUrl)) {
+          // ✅ Local file that needs upload
+          console.log('📤 Uploading local image:', itemData.imageUrl);
+          const fileName = `${itemData.item_id}_${Date.now()}.jpg`;
+          const uploadResult = await this.uploadImage(itemData.imageUrl, fileName);
+          
+          if (uploadResult.success) {
+            imageUrl = uploadResult.publicUrl;
+            imagePath = uploadResult.path;
+          } else {
+            console.warn('Image upload failed:', uploadResult.error);
+          }
+        } else if (typeof itemData.imageUrl === 'object' && itemData.imageUrl.uri) {
+          // ✅ Picker object format
+          const fileName = itemData.imageUrl.name || `${itemData.item_id}_${Date.now()}.jpg`;
+          const uploadResult = await this.uploadImage(itemData.imageUrl, fileName);
+          
+          if (uploadResult.success) {
+            imageUrl = uploadResult.publicUrl;
+            imagePath = uploadResult.path;
+          } else {
+            console.warn('Image upload failed:', uploadResult.error);
+          }
+        } else {
+          // ✅ Assume it's already a valid URL
+          imageUrl = itemData.imageUrl;
+        }
+      }
+
+      // Build new item for database
       const newItem = {
-        id: Date.now(),
         title: itemData.title.toString().trim(),
         description: itemData.description.toString().trim(),
         item_id: itemData.item_id.toString().trim(),
         vendor: itemData.vendor.toString().trim(),
         manufacture_date: itemData.manufacture_date,
-        imageUrl: incomingImageUrl, // <-- camelCase
+        image_url: imageUrl,
+        image_path: imagePath,
+        user_id: this.userId,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
 
-      // Persist (store already-normalized shape)
-      const toSave = [newItem, ...arr];
-      await AsyncStorage.setItem(this.storageKey(), JSON.stringify(toSave));
+      // Insert into database
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .insert([newItem])
+        .select()
+        .single();
 
-      return { success: true, data: newItem };
+      if (error) throw error;
+
+      return { success: true, data: this._normalizeItem(data) };
     } catch (error) {
       console.error('addItem error:', error);
       return { success: false, error: error.message || 'Failed to add item' };
@@ -129,40 +279,96 @@ class InventoryService {
     try {
       this._assertUser();
 
-      const existing = await this.getItems();
-      if (!existing.success) throw new Error('Failed to load items');
+      // Check if item exists and belongs to user
+      const { data: existingItem, error: fetchError } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .eq('id', itemId)
+        .eq('user_id', this.userId)
+        .single();
 
-      const items = Array.isArray(existing.data) ? existing.data : [];
-      const idx = items.findIndex((it) => it.id === itemId);
-      if (idx === -1) throw new Error('Item not found');
+      if (fetchError) throw new Error('Item not found');
 
       // Ensure unique item_id if changing
-      if (updates.item_id && updates.item_id !== items[idx].item_id) {
-        const dup = items.some((it, i) => i !== idx && it.item_id === updates.item_id);
-        if (dup) throw new Error('Item ID already exists');
+      if (updates.item_id && updates.item_id !== existingItem.item_id) {
+        const { data: duplicate, error: dupError } = await supabase
+          .from('inventory_items')
+          .select('id')
+          .eq('user_id', this.userId)
+          .eq('item_id', updates.item_id)
+          .neq('id', itemId)
+          .single();
+
+        if (dupError && dupError.code !== 'PGRST116') throw dupError;
+        if (duplicate) throw new Error('Item ID already exists');
       }
 
       // Validate date if present
       if (updates.manufacture_date) this._assertDate(updates.manufacture_date);
 
-      // Normalize incoming image key and trim strings
-      const clean = { ...updates };
-      if (clean.image_url && !clean.imageUrl) {
-        clean.imageUrl = clean.image_url;
-        delete clean.image_url;
+      // Prepare updates with snake_case for database
+      const dbUpdates = { ...updates };
+
+      // ✅ Handle image update with hosted URL support
+      if (updates.imageUrl !== undefined) {
+        if (!updates.imageUrl) {
+          // ✅ Image removed
+          if (existingItem.image_path) {
+            await this.deleteImage(existingItem.image_path);
+          }
+          dbUpdates.image_url = null;
+          dbUpdates.image_path = null;
+        } else if (this._isSupabaseUrl(updates.imageUrl)) {
+          // ✅ Already a hosted URL - use as is
+          dbUpdates.image_url = updates.imageUrl;
+          console.log('✅ Using hosted image URL:', updates.imageUrl);
+        } else if (this._isLocalUri(updates.imageUrl)) {
+          // ✅ Local file that needs upload
+          console.log('📤 Uploading local image for update:', updates.imageUrl);
+          
+          // Delete old image if exists
+          if (existingItem.image_path) {
+            await this.deleteImage(existingItem.image_path);
+          }
+
+          // Upload new image
+          const fileName = `${existingItem.item_id}_${Date.now()}.jpg`;
+          const uploadResult = await this.uploadImage(updates.imageUrl, fileName);
+          
+          if (uploadResult.success) {
+            dbUpdates.image_url = uploadResult.publicUrl;
+            dbUpdates.image_path = uploadResult.path;
+          } else {
+            throw new Error('Failed to upload new image');
+          }
+        } else {
+          // ✅ Assume it's already a valid URL
+          dbUpdates.image_url = updates.imageUrl;
+        }
+        
+        // Remove the camelCase imageUrl from updates
+        delete dbUpdates.imageUrl;
       }
-      ['title', 'description', 'item_id', 'vendor', 'imageUrl'].forEach((f) => {
-        if (typeof clean[f] === 'string') clean[f] = clean[f].trim();
+
+      // Trim strings
+      ['title', 'description', 'item_id', 'vendor'].forEach((f) => {
+        if (typeof dbUpdates[f] === 'string') dbUpdates[f] = dbUpdates[f].trim();
       });
 
-      items[idx] = {
-        ...items[idx],
-        ...clean,
-        updated_at: new Date().toISOString(),
-      };
+      dbUpdates.updated_at = new Date().toISOString();
 
-      await AsyncStorage.setItem(this.storageKey(), JSON.stringify(items));
-      return { success: true, data: items[idx] };
+      // Update in database
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .update(dbUpdates)
+        .eq('id', itemId)
+        .eq('user_id', this.userId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return { success: true, data: this._normalizeItem(data) };
     } catch (error) {
       console.error('updateItem error:', error);
       return { success: false, error: error.message || 'Failed to update item' };
@@ -174,14 +380,27 @@ class InventoryService {
     try {
       this._assertUser();
 
-      const existing = await this.getItems();
-      if (!existing.success) throw new Error('Failed to load items');
+      // Get item details to delete associated image
+      const { data: item, error: fetchError } = await supabase
+        .from('inventory_items')
+        .select('image_path')
+        .eq('id', itemId)
+        .eq('user_id', this.userId)
+        .single();
 
-      const items = Array.isArray(existing.data) ? existing.data : [];
-      const filtered = items.filter((it) => it.id !== itemId);
-      if (filtered.length === items.length) throw new Error('Item not found');
+      if (!fetchError && item?.image_path) {
+        // Delete image from storage
+        await this.deleteImage(item.image_path);
+      }
 
-      await AsyncStorage.setItem(this.storageKey(), JSON.stringify(filtered));
+      const { error } = await supabase
+        .from('inventory_items')
+        .delete()
+        .eq('id', itemId)
+        .eq('user_id', this.userId);
+
+      if (error) throw error;
+
       return { success: true, message: 'Item deleted successfully' };
     } catch (error) {
       console.error('deleteItem error:', error);
@@ -192,19 +411,20 @@ class InventoryService {
   /** Text search across fields */
   async searchItems(query) {
     try {
-      const result = await this.getItems();
-      if (!result.success) return result;
-
       const q = (query || '').toLowerCase();
-      const items = Array.isArray(result.data) ? result.data : [];
+      if (!q) return await this.getItems();
 
-      const filtered = items.filter((it) =>
-        [it.title, it.item_id, it.vendor, it.description]
-          .filter(Boolean)
-          .some((v) => v.toLowerCase().includes(q))
-      );
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .eq('user_id', this.userId)
+        .or(`title.ilike.%${q}%,item_id.ilike.%${q}%,vendor.ilike.%${q}%,description.ilike.%${q}%`)
+        .order('created_at', { ascending: false });
 
-      return { success: true, data: filtered };
+      if (error) throw error;
+
+      const normalized = Array.isArray(data) ? data.map((it) => this._normalizeItem(it)) : [];
+      return { success: true, data: normalized };
     } catch (error) {
       console.error('searchItems error:', error);
       return { success: false, error: error.message || 'Failed to search items' };
@@ -214,14 +434,16 @@ class InventoryService {
   /** Get a single item */
   async getItemById(itemId) {
     try {
-      const result = await this.getItems();
-      if (!result.success) return result;
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .eq('id', itemId)
+        .eq('user_id', this.userId)
+        .single();
 
-      const items = Array.isArray(result.data) ? result.data : [];
-      const item = items.find((it) => it.id === itemId);
-      if (!item) throw new Error('Item not found');
+      if (error) throw new Error('Item not found');
 
-      return { success: true, data: item };
+      return { success: true, data: this._normalizeItem(data) };
     } catch (error) {
       console.error('getItemById error:', error);
       return { success: false, error: error.message || 'Failed to get item' };
@@ -231,10 +453,13 @@ class InventoryService {
   /** Basic stats */
   async getInventoryStats() {
     try {
-      const result = await this.getItems();
-      if (!result.success) return result;
+      const { data: items, error } = await supabase
+        .from('inventory_items')
+        .select('vendor, created_at')
+        .eq('user_id', this.userId);
 
-      const items = Array.isArray(result.data) ? result.data : [];
+      if (error) throw error;
+
       const vendors = [...new Set(items.map((it) => it.vendor))];
 
       const thisMonth = new Date();
@@ -293,7 +518,34 @@ class InventoryService {
   async clearAllData() {
     try {
       this._assertUser();
-      await AsyncStorage.removeItem(this.storageKey());
+
+      // Get all items to delete their images
+      const { data: items, error: fetchError } = await supabase
+        .from('inventory_items')
+        .select('image_path')
+        .eq('user_id', this.userId);
+
+      if (fetchError) throw fetchError;
+
+      // Delete all images from storage
+      const imagePaths = items
+        .map(item => item.image_path)
+        .filter(path => path); // Filter out null/undefined paths
+
+      if (imagePaths.length > 0) {
+        await supabase.storage
+          .from('inventory_images')
+          .remove(imagePaths);
+      }
+
+      // Delete all inventory items
+      const { error } = await supabase
+        .from('inventory_items')
+        .delete()
+        .eq('user_id', this.userId);
+
+      if (error) throw error;
+
       return { success: true, message: 'All inventory data cleared' };
     } catch (error) {
       console.error('clearAllData error:', error);
@@ -304,10 +556,14 @@ class InventoryService {
   /** Generate next ID like ITM001 */
   async generateNextItemId() {
     try {
-      const result = await this.getItems();
-      if (!result.success) return { success: false, error: 'Failed to load items' };
+      const { data: items, error } = await supabase
+        .from('inventory_items')
+        .select('item_id')
+        .eq('user_id', this.userId)
+        .like('item_id', 'ITM%');
 
-      const items = Array.isArray(result.data) ? result.data : [];
+      if (error) throw error;
+
       let next = 1;
       items.forEach((it) => {
         const m = it.item_id && it.item_id.match(/^ITM(\d+)$/);
@@ -316,6 +572,7 @@ class InventoryService {
           if (n >= next) next = n + 1;
         }
       });
+      
       return { success: true, data: `ITM${String(next).padStart(3, '0')}` };
     } catch (error) {
       console.error('generateNextItemId error:', error);

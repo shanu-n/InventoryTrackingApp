@@ -1,13 +1,12 @@
 // src/api/server.js
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 8000;
 
-// --- Crash diagnostics (so we SEE why the process exits) ---
+// --- Crash diagnostics ---
 process.on('uncaughtException', (err) => {
   console.error('💥 UNCAUGHT EXCEPTION', err);
 });
@@ -19,17 +18,13 @@ process.on('unhandledRejection', (reason, p) => {
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Static uploads
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-app.use('/uploads', express.static(UPLOAD_DIR));
-
-// Health
+// Health check
 app.get('/', (_req, res) => res.send('Inventory App Backend is running 🚀'));
 
-// ✅ MOUNT THE VISION ROUTES
+// ✅ Mount the vision routes
 app.use('/api/vision', require('./vision/index'));
 
-// 404
+// 404 fallback
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
 // Start

@@ -16,31 +16,60 @@ const withTimeout = (ms, promise) =>
     ),
   ]);
 
+/**
+ * Analyze an image and extract inventory item data
+ * @param {string} imageUri - Local file URI from camera/gallery
+ * @param {string} [optionalText] - Extra text (notes, labels, etc.)
+ * @returns {Promise<Object>} - Parsed item data with hosted image URL
+ */
 export const analyzeImage = async (imageUri, optionalText = '') => {
   try {
-    const fileName = imageUri.split('/').pop() || 'photo.jpg';
+    console.log('🔍 Analyzing image:', imageUri);
+
+    const fileName = imageUri.split('/').pop() || `image_${Date.now()}.jpg`;
     const lower = fileName.toLowerCase();
     const fileType =
       lower.endsWith('.png') ? 'image/png' :
       lower.endsWith('.heic') ? 'image/heic' :
       'image/jpeg';
 
+    // Create FormData for multipart upload
     const formData = new FormData();
     formData.append('image', { uri: imageUri, name: fileName, type: fileType });
     if (optionalText) formData.append('text', optionalText);
 
-    // ✅ correct endpoint
     const endpoint = `${RESOLVED_BASE_URL}/api/vision`;
-    console.log('POST →', endpoint, { RESOLVED_BASE_URL, fileName, fileType });
+    console.log('📤 Uploading to vision API:', endpoint);
 
-    // Do NOT set Content-Type; RN sets multipart boundary automatically
-    const resp = await withTimeout(20000, fetch(endpoint, { method: 'POST', body: formData }));
+    // Let RN set Content-Type boundary
+    const resp = await withTimeout(
+      20000,
+      fetch(endpoint, { method: 'POST', body: formData })
+    );
 
-    if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
+    if (!resp.ok) {
+      const errorText = await resp.text();
+      console.error('❌ Vision API error:', resp.status, errorText);
+      throw new Error(`Vision API error: ${resp.status}`);
+    }
 
-    return await resp.json(); // { title, item_id, description, vendor, manufacture_date, imageUrl }
+    const result = await resp.json();
+    console.log('✅ Vision API response:', result);
+
+    // Normalize returned object
+    return {
+      title: result.title || '',
+      description: result.description || '',
+      item_id: result.item_id || '',
+      vendor: result.vendor || '',
+      manufacture_date: result.manufacture_date || '',
+      imageUrl: result.supabaseUrl || result.localImageUrl || result.imageUrl || null,
+    };
   } catch (err) {
-    console.error('❌ Error calling analyzeImage:', err);
+    console.error('❌ Error in analyzeImage:', err);
     throw err;
   }
 };
+
+export default { analyzeImage };
+

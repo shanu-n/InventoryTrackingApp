@@ -1,40 +1,23 @@
-import { Buffer } from 'buffer';
-import { extractItemData } from '../utils/Gemini.js';
-import fs from 'fs';
+// src/api/vision/parse.js
 
 /**
- * POST /api/vision/parse
- * Handles image upload and optional text input,
- * uses GPT-4o Vision to extract item details.
+ * Dummy parser for now.
+ * It receives an image buffer (from multer) and returns a fake label.
+ * Replace this later with real ML / OCR / Vision API logic.
+ *
+ * @param {Buffer} buffer
+ * @returns {Promise<{ label: string, confidence: number }>}
  */
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+async function parseImageLabel(buffer) {
+  if (!buffer || !Buffer.isBuffer(buffer)) {
+    throw new Error('Invalid image buffer');
   }
-  console.log('✅ parse.js handler called');
-  try {
-    const { imageBase64, text } = req.body;
 
-    if (!imageBase64) {
-      return res.status(400).json({ error: 'Image is required' });
-    }
-
-    const itemData = await extractItemData(imageBase64, text || '');
-    return res.status(200).json(itemData);
-  } catch (error) {
-    console.error('Error parsing image with GPT:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+  // For now, just return a mock response
+  return {
+    label: "Uncategorized Item",
+    confidence: 0.5,
+  };
 }
 
-export async function parseImageLabel(imagePath) {
-  try {
-    const imageBuffer = fs.readFileSync(imagePath);
-    const base64Image = Buffer.from(imageBuffer).toString('base64');
-    const result = await extractItemData(base64Image, '');
-    return result;
-  } catch (err) {
-    console.error('❌ parseImageLabel error:', err); // ✅ full log
-    throw err;
-  }
-}
+module.exports = { parseImageLabel };

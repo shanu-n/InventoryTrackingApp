@@ -1,40 +1,22 @@
 // src/api/vision/index.js
 const express = require('express');
 const multer = require('multer');
+const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
-const fs = require('fs');
 
 const router = express.Router();
 
-// ----- Helpers -----
-const getBaseUrl = (req) => {
-  // If you set PUBLIC_BASE_URL, we respect it (e.g., http://192.168.x.x:8000)
-  const fromEnv = process.env.PUBLIC_BASE_URL && process.env.PUBLIC_BASE_URL.trim();
-  if (fromEnv) return fromEnv;
+// ----- Supabase Setup -----
+// ✅ Use backend env vars, NOT EXPO_PUBLIC
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
-  // Otherwise build from the incoming request (works for simulator or phone)
-  const host = req.headers['x-forwarded-host'] || req.headers.host; // e.g., 192.168.x.x:8000
-  const protoHeader = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-  const proto = String(protoHeader).split(',')[0]; // handle "http,https"
-  return `${proto}://${host}`;
-};
+const BUCKET = process.env.SUPABASE_BUCKET || 'inventory_images';
 
-// Simple ping for reachability checks
-router.get('/ping', (_req, res) => res.json({ ok: true }));
-
-// Ensure uploads dir exists
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-// Save uploads with timestamp + original extension
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname) || '.jpg';
-    cb(null, `${Date.now()}${ext}`);
-  },
-});
-const upload = multer({ storage });
+// ----- Multer: memory storage only -----
+const upload = multer({ storage: multer.memoryStorage() });
 
 // ----- Routes -----
 router.post('/', upload.single('image'), async (req, res) => {
@@ -44,9 +26,11 @@ router.post('/', upload.single('image'), async (req, res) => {
   });
 
   try {
-    if (!req.file) return res.status(400).json({ error: 'No file received' });
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file received' });
+    }
 
-    // Support ESM parse.js by trying CJS first, then ESM dynamic import
+    // Parse image
     let parseImageLabel;
     try {
       ({ parseImageLabel } = require('./parse'));
@@ -54,16 +38,42 @@ router.post('/', upload.single('image'), async (req, res) => {
       ({ parseImageLabel } = await import('./parse.js'));
     }
 
-    const parsed = await parseImageLabel(req.file.path);
+    const parsed = await parseImageLabel(req.file.buffer);
 
-    // ✅ Build a device-friendly public URL
-    const baseUrl = getBaseUrl(req);
-    const imageUrl = `${baseUrl}/uploads/${path.basename(req.file.path)}`;
+    // Upload to Supabase
+    const ext = path.extname(req.file.originalname) || '.jpg';
+    const supabasePath = `uploads/${Date.now()}${ext}`;
 
-    return res.json({ ...parsed, imageUrl });
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET)
+      .upload(supabasePath, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error('❌ Supabase upload failed:', uploadError);
+      return res.status(500).json({ error: 'Supabase upload failed', details: uploadError.message });
+    }
+
+    // Get public URL
+    const { data: publicUrlData } = supabase.storage
+      .from(BUCKET)
+      .getPublicUrl(supabasePath);
+
+    const supabaseUrl = publicUrlData?.publicUrl;
+
+    // ✅ Return parsed labels and Supabase URL
+    return res.json({
+      ...parsed,
+      imageUrl: supabaseUrl,
+    });
   } catch (err) {
-    console.error('❌ Error in /api/vision:', err);
-    return res.status(500).json({ error: 'Failed to extract text from image' });
+    console.error('❌ Error in /api/vision:', err.stack || err);
+    return res.status(500).json({
+      error: 'Failed to process image',
+      details: err.message,
+    });
   }
 });
 

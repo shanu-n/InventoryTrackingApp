@@ -14,6 +14,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import inventoryService from '../services/inventoryService';
 
 const EditItemScreen = ({ navigation, route }) => {
@@ -31,6 +32,8 @@ const EditItemScreen = ({ navigation, route }) => {
   const [errors, setErrors] = useState({});
   const [hasChanges, setHasChanges] = useState(false);
   const [originalData, setOriginalData] = useState({});
+  const [selectedImage, setSelectedImage] = useState(null); // New local image selection
+  const [imageChanged, setImageChanged] = useState(false); // Track if image was changed
 
   useEffect(() => {
     // Pre-populate form with existing item data
@@ -52,9 +55,9 @@ const EditItemScreen = ({ navigation, route }) => {
   useEffect(() => {
     const changed = Object.keys(formData).some(key => 
       formData[key] !== originalData[key]
-    );
+    ) || imageChanged;
     setHasChanges(changed);
-  }, [formData, originalData]);
+  }, [formData, originalData, imageChanged]);
 
   const validateForm = () => {
     const newErrors = {};
@@ -102,15 +105,6 @@ const EditItemScreen = ({ navigation, route }) => {
       }
     }
 
-    // Validate image URL if provided
-    if (formData.image_url && formData.image_url.trim()) {
-      try {
-        new URL(formData.image_url.trim());
-      } catch (e) {
-        newErrors.image_url = 'Please enter a valid URL';
-      }
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -130,6 +124,41 @@ const EditItemScreen = ({ navigation, route }) => {
     }
   };
 
+  // New function to handle image selection
+  const pickImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets?.[0]) {
+        const imageUri = result.assets[0].uri;
+        setSelectedImage(imageUri);
+        setImageChanged(true);
+        
+        // Clear any image_url errors
+        if (errors.image_url) {
+          setErrors(prev => ({
+            ...prev,
+            image_url: ''
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to select image');
+    }
+  };
+
+  // Function to remove selected image
+  const removeImage = () => {
+    setSelectedImage(null);
+    setImageChanged(true);
+  };
+
   const handleSave = async () => {
     if (!validateForm()) {
       Alert.alert('Validation Error', 'Please fix the errors before saving');
@@ -146,13 +175,28 @@ const EditItemScreen = ({ navigation, route }) => {
         vendor: formData.vendor.trim(),
         description: formData.description.trim(),
         manufacture_date: formData.manufacture_date.trim(),
-        image_url: formData.image_url.trim() || item.image_url, // Keep original if empty
       };
+
+      // Handle image update
+      if (imageChanged) {
+        if (selectedImage) {
+          // New image selected - pass the local URI to inventoryService
+          updateData.imageUrl = selectedImage;
+        } else {
+          // Image removed - set to empty string to clear it
+          updateData.image_url = '';
+        }
+      } else if (formData.image_url !== originalData.image_url) {
+        // Image URL was manually edited (though this is less common)
+        updateData.image_url = formData.image_url.trim();
+      }
 
       const result = await inventoryService.updateItem(item.id, updateData);
       
       if (result.success) {
         setHasChanges(false);
+        setImageChanged(false);
+        setSelectedImage(null);
         Alert.alert(
           'Success',
           'Item updated successfully!',
@@ -205,6 +249,8 @@ const EditItemScreen = ({ navigation, route }) => {
           onPress: () => {
             setFormData(originalData);
             setErrors({});
+            setSelectedImage(null);
+            setImageChanged(false);
           }
         }
       ]
@@ -251,7 +297,8 @@ const EditItemScreen = ({ navigation, route }) => {
     return unsubscribe;
   }, [navigation, hasChanges]);
 
-  const displayImage = formData.image_url || item?.image_url;
+  // Determine which image to display
+  const displayImage = selectedImage || formData.image_url || item?.image_url;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -290,23 +337,43 @@ const EditItemScreen = ({ navigation, route }) => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Image Preview */}
-          {displayImage ? (
-            <View style={styles.imagePreviewContainer}>
-              <Image
-                source={{ uri: displayImage }}
-                style={styles.imagePreview}
-                resizeMode="cover"
-              />
-              <View style={styles.imageOverlay}>
-                <Text style={styles.imageOverlayText}>
-                  {formData.image_url && formData.image_url !== item?.image_url 
-                    ? 'New Image Preview' 
-                    : 'Current Image'}
-                </Text>
+          {/* Image Section */}
+          <View style={styles.imageSection}>
+            <Text style={styles.sectionTitle}>Item Image</Text>
+            
+            {displayImage ? (
+              <View style={styles.imagePreviewContainer}>
+                <Image
+                  source={{ uri: displayImage }}
+                  style={styles.imagePreview}
+                  resizeMode="cover"
+                />
+                <View style={styles.imageOverlay}>
+                  <Text style={styles.imageOverlayText}>
+                    {selectedImage ? 'New Image Selected' : 'Current Image'}
+                  </Text>
+                </View>
+                <TouchableOpacity 
+                  style={styles.removeImageButton} 
+                  onPress={removeImage}
+                >
+                  <Ionicons name="close-circle" size={24} color="#ef4444" />
+                </TouchableOpacity>
               </View>
-            </View>
-          ) : null}
+            ) : (
+              <View style={styles.noImageContainer}>
+                <Ionicons name="image-outline" size={48} color="#9ca3af" />
+                <Text style={styles.noImageText}>No image selected</Text>
+              </View>
+            )}
+
+            <TouchableOpacity style={styles.imageButton} onPress={pickImage}>
+              <Ionicons name="camera" size={20} color="#2563eb" />
+              <Text style={styles.imageButtonText}>
+                {displayImage ? 'Change Image' : 'Add Image'}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Form Fields */}
           <View style={styles.formContainer}>
@@ -367,27 +434,6 @@ const EditItemScreen = ({ navigation, route }) => {
               {errors.manufacture_date && <Text style={styles.errorText}>{errors.manufacture_date}</Text>}
               <Text style={styles.helperText}>
                 Original: {formatDate(item?.manufacture_date)}
-              </Text>
-            </View>
-
-            {/* Image URL */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Image URL</Text>
-              <TextInput
-                style={[styles.input, styles.textArea, errors.image_url && styles.inputError]}
-                value={formData.image_url}
-                onChangeText={(text) => handleInputChange('image_url', text)}
-                placeholder="Enter image URL (optional)"
-                placeholderTextColor="#94a3b8"
-                multiline
-                numberOfLines={2}
-                textAlignVertical="top"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              {errors.image_url && <Text style={styles.errorText}>{errors.image_url}</Text>}
-              <Text style={styles.helperText}>
-                Leave empty to keep current image
               </Text>
             </View>
 
@@ -521,11 +567,11 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
-  imagePreviewContainer: {
-    position: 'relative',
+  imageSection: {
     margin: 16,
+    backgroundColor: '#ffffff',
     borderRadius: 12,
-    overflow: 'hidden',
+    padding: 16,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -534,6 +580,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 12,
+  },
+  imagePreviewContainer: {
+    position: 'relative',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 12,
   },
   imagePreview: {
     width: '100%',
@@ -553,6 +611,47 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     textAlign: 'center',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 12,
+    padding: 4,
+  },
+  noImageContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 120,
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    borderStyle: 'dashed',
+    marginBottom: 12,
+  },
+  noImageText: {
+    color: '#9ca3af',
+    fontSize: 14,
+    marginTop: 8,
+  },
+  imageButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#2563eb',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    gap: 8,
+  },
+  imageButtonText: {
+    color: '#2563eb',
+    fontSize: 14,
+    fontWeight: '600',
   },
   formContainer: {
     padding: 16,
@@ -579,10 +678,6 @@ const styles = StyleSheet.create({
   inputError: {
     borderColor: '#ef4444',
     borderWidth: 2,
-  },
-  textArea: {
-    height: 60,
-    textAlignVertical: 'top',
   },
   textAreaLarge: {
     height: 100,
