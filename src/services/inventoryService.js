@@ -145,8 +145,9 @@ class InventoryService {
       item_id: typeof it.item_id === 'string' ? it.item_id : '',
       vendor: typeof it.vendor === 'string' ? it.vendor : '',
       manufacture_date: it.manufacture_date,
+      categories: typeof it.categories === 'string' ? it.categories : '',
+      subcategories: typeof it.subcategories === 'string' ? it.subcategories : '',
       imageUrl: it.image_url || it.imageUrl || null, // Handle both naming conventions
-      imagePath: it.image_path || it.imagePath || null, // Store the storage path for deletion
       created_at: it.created_at || new Date().toISOString(),
       updated_at: it.updated_at || new Date().toISOString(),
       user_id: it.user_id || this.userId,
@@ -251,6 +252,8 @@ class InventoryService {
         item_id: itemData.item_id.toString().trim(),
         vendor: itemData.vendor.toString().trim(),
         manufacture_date: itemData.manufacture_date,
+        categories: itemData.categories ? itemData.categories.toString().trim() : '',
+        subcategories: itemData.subcategories ? itemData.subcategories.toString().trim() : '',
         image_url: imageUrl,
         image_path: imagePath,
         user_id: this.userId,
@@ -350,8 +353,8 @@ class InventoryService {
         delete dbUpdates.imageUrl;
       }
 
-      // Trim strings
-      ['title', 'description', 'item_id', 'vendor'].forEach((f) => {
+      // Trim strings including new category fields
+      ['title', 'description', 'item_id', 'vendor', 'categories', 'subcategories'].forEach((f) => {
         if (typeof dbUpdates[f] === 'string') dbUpdates[f] = dbUpdates[f].trim();
       });
 
@@ -408,7 +411,7 @@ class InventoryService {
     }
   }
 
-  /** Text search across fields */
+  /** Text search across fields including categories */
   async searchItems(query) {
     try {
       const q = (query || '').toLowerCase();
@@ -418,7 +421,7 @@ class InventoryService {
         .from('inventory_items')
         .select('*')
         .eq('user_id', this.userId)
-        .or(`title.ilike.%${q}%,item_id.ilike.%${q}%,vendor.ilike.%${q}%,description.ilike.%${q}%`)
+        .or(`title.ilike.%${q}%,item_id.ilike.%${q}%,vendor.ilike.%${q}%,description.ilike.%${q}%,categories.ilike.%${q}%,subcategories.ilike.%${q}%`)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -450,17 +453,36 @@ class InventoryService {
     }
   }
 
-  /** Basic stats */
+  /** Basic stats including category analysis */
   async getInventoryStats() {
     try {
       const { data: items, error } = await supabase
         .from('inventory_items')
-        .select('vendor, created_at')
+        .select('vendor, created_at, categories, subcategories')
         .eq('user_id', this.userId);
 
       if (error) throw error;
 
       const vendors = [...new Set(items.map((it) => it.vendor))];
+
+      // Collect all categories and subcategories
+      const allCategories = new Set();
+      const allSubcategories = new Set();
+      
+      items.forEach(item => {
+        if (item.categories) {
+          item.categories.split(',').forEach(cat => {
+            const trimmed = cat.trim();
+            if (trimmed) allCategories.add(trimmed);
+          });
+        }
+        if (item.subcategories) {
+          item.subcategories.split(',').forEach(subcat => {
+            const trimmed = subcat.trim();
+            if (trimmed) allSubcategories.add(trimmed);
+          });
+        }
+      });
 
       const thisMonth = new Date();
       thisMonth.setDate(1);
@@ -471,13 +493,57 @@ class InventoryService {
         data: {
           totalItems: items.length,
           totalVendors: vendors.length,
+          totalCategories: allCategories.size,
+          totalSubcategories: allSubcategories.size,
           itemsThisMonth,
           vendors,
+          categories: Array.from(allCategories).sort(),
+          subcategories: Array.from(allSubcategories).sort(),
         },
       };
     } catch (error) {
       console.error('getInventoryStats error:', error);
       return { success: false, error: error.message || 'Failed to get inventory stats' };
+    }
+  }
+
+  /** Get items by category */
+  async getItemsByCategory(category) {
+    try {
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .eq('user_id', this.userId)
+        .ilike('categories', `%${category}%`)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const normalized = Array.isArray(data) ? data.map((it) => this._normalizeItem(it)) : [];
+      return { success: true, data: normalized };
+    } catch (error) {
+      console.error('getItemsByCategory error:', error);
+      return { success: false, error: error.message || 'Failed to get items by category' };
+    }
+  }
+
+  /** Get items by subcategory */
+  async getItemsBySubcategory(subcategory) {
+    try {
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .eq('user_id', this.userId)
+        .ilike('subcategories', `%${subcategory}%`)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const normalized = Array.isArray(data) ? data.map((it) => this._normalizeItem(it)) : [];
+      return { success: true, data: normalized };
+    } catch (error) {
+      console.error('getItemsBySubcategory error:', error);
+      return { success: false, error: error.message || 'Failed to get items by subcategory' };
     }
   }
 
@@ -509,6 +575,15 @@ class InventoryService {
     if (itemData.item_id) {
       const ok = /^[A-Za-z0-9\-_]+$/.test(itemData.item_id.toString().trim());
       if (!ok) errors.item_id = 'Item ID can only contain letters, numbers, hyphens, and underscores';
+    }
+
+    // Validate categories and subcategories length
+    if (itemData.categories && itemData.categories.toString().trim().length > 100) {
+      errors.categories = 'Categories must be 100 characters or less';
+    }
+
+    if (itemData.subcategories && itemData.subcategories.toString().trim().length > 100) {
+      errors.subcategories = 'Subcategories must be 100 characters or less';
     }
 
     return { isValid: Object.keys(errors).length === 0, errors };

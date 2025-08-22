@@ -26,6 +26,8 @@ const EditItemScreen = ({ navigation, route }) => {
     vendor: '',
     description: '',
     manufacture_date: '',
+    categories: '',
+    subcategories: '',
     image_url: '',
   });
   const [loading, setLoading] = useState(false);
@@ -44,6 +46,8 @@ const EditItemScreen = ({ navigation, route }) => {
         vendor: item.vendor || '',
         description: item.description || '',
         manufacture_date: item.manufacture_date || '',
+        categories: item.categories || '',
+        subcategories: item.subcategories || '',
         image_url: item.image_url || '',
       };
       setFormData(initialData);
@@ -103,6 +107,15 @@ const EditItemScreen = ({ navigation, route }) => {
           newErrors.manufacture_date = 'Manufacture date cannot be in the future';
         }
       }
+    }
+
+    // Categories and subcategories validation (optional fields)
+    if (formData.categories && formData.categories.trim().length > 100) {
+      newErrors.categories = 'Categories must be 100 characters or less';
+    }
+
+    if (formData.subcategories && formData.subcategories.trim().length > 100) {
+      newErrors.subcategories = 'Subcategories must be 100 characters or less';
     }
 
     setErrors(newErrors);
@@ -175,6 +188,8 @@ const EditItemScreen = ({ navigation, route }) => {
         vendor: formData.vendor.trim(),
         description: formData.description.trim(),
         manufacture_date: formData.manufacture_date.trim(),
+        categories: formData.categories.trim(),
+        subcategories: formData.subcategories.trim(),
       };
 
       // Handle image update
@@ -418,6 +433,38 @@ const EditItemScreen = ({ navigation, route }) => {
                 placeholderTextColor="#94a3b8"
               />
               {errors.vendor && <Text style={styles.errorText}>{errors.vendor}</Text>}
+            </View>
+
+            {/* Categories */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Categories</Text>
+              <TextInput
+                style={[styles.input, errors.categories && styles.inputError]}
+                value={formData.categories}
+                onChangeText={(text) => handleInputChange('categories', text)}
+                placeholder="Enter categories (e.g., Electronics, Hardware)"
+                placeholderTextColor="#94a3b8"
+              />
+              {errors.categories && <Text style={styles.errorText}>{errors.categories}</Text>}
+              <Text style={styles.helperText}>
+                Optional - separate multiple categories with commas
+              </Text>
+            </View>
+
+            {/* Subcategories */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Subcategories</Text>
+              <TextInput
+                style={[styles.input, errors.subcategories && styles.inputError]}
+                value={formData.subcategories}
+                onChangeText={(text) => handleInputChange('subcategories', text)}
+                placeholder="Enter subcategories (e.g., Computers, Laptops)"
+                placeholderTextColor="#94a3b8"
+              />
+              {errors.subcategories && <Text style={styles.errorText}>{errors.subcategories}</Text>}
+              <Text style={styles.helperText}>
+                Optional - separate multiple subcategories with commas
+              </Text>
             </View>
 
             {/* Manufacture Date */}

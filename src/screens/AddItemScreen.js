@@ -36,6 +36,8 @@ const AddItemScreen = () => {
     item_id: '',
     vendor: '',
     manufacture_date: '',
+    categories: '',
+    subcategories: '',
     imageUrl: null, // This will be the hosted URL from vision API
   });
 
@@ -91,6 +93,8 @@ const AddItemScreen = () => {
         item_id: extractedData.item_id || '',
         vendor: extractedData.vendor || '',
         manufacture_date: extractedData.manufacture_date || '',
+        categories: extractedData.categories || '',
+        subcategories: extractedData.subcategories || '',
         // ✅ Use the hosted URL from vision API
         imageUrl: extractedData.imageUrl,
       }));
@@ -117,6 +121,8 @@ const AddItemScreen = () => {
         item_id: formData.item_id,
         vendor: formData.vendor,
         manufacture_date: formData.manufacture_date,
+        categories: formData.categories,
+        subcategories: formData.subcategories,
         imageUrl: formData.imageUrl, // This is already a hosted URL
       });
 
@@ -130,6 +136,8 @@ const AddItemScreen = () => {
           item_id: '',
           vendor: '',
           manufacture_date: '',
+          categories: '',
+          subcategories: '',
           imageUrl: null,
         });
         setCurrentStep('photo');
@@ -269,6 +277,24 @@ const AddItemScreen = () => {
                 value={formData.vendor}
                 onChangeText={(text) => setFormData({ ...formData, vendor: text })}
                 placeholder="Enter vendor name"
+                editable={!loading}
+              />
+
+              <Text style={styles.label}>Categories</Text>
+              <TextInput
+                style={styles.input}
+                value={formData.categories}
+                onChangeText={(text) => setFormData({ ...formData, categories: text })}
+                placeholder="Enter categories (e.g., Electronics, Hardware)"
+                editable={!loading}
+              />
+
+              <Text style={styles.label}>Subcategories</Text>
+              <TextInput
+                style={styles.input}
+                value={formData.subcategories}
+                onChangeText={(text) => setFormData({ ...formData, subcategories: text })}
+                placeholder="Enter subcategories (e.g., Computers, Laptops)"
                 editable={!loading}
               />
 
