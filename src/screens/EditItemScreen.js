@@ -18,7 +18,7 @@ import * as ImagePicker from 'expo-image-picker';
 import inventoryService from '../services/inventoryService';
 
 const EditItemScreen = ({ navigation, route }) => {
-  const { item } = route.params; // Get the item to edit from navigation params
+  const { item } = route.params; 
   
   const [formData, setFormData] = useState({
     title: '',
@@ -34,11 +34,10 @@ const EditItemScreen = ({ navigation, route }) => {
   const [errors, setErrors] = useState({});
   const [hasChanges, setHasChanges] = useState(false);
   const [originalData, setOriginalData] = useState({});
-  const [selectedImage, setSelectedImage] = useState(null); // New local image selection
-  const [imageChanged, setImageChanged] = useState(false); // Track if image was changed
+  const [selectedImage, setSelectedImage] = useState(null); 
+  const [imageChanged, setImageChanged] = useState(false); 
 
   useEffect(() => {
-    // Pre-populate form with existing item data
     if (item) {
       const initialData = {
         title: item.title || '',
@@ -55,7 +54,6 @@ const EditItemScreen = ({ navigation, route }) => {
     }
   }, [item]);
 
-  // Check if form data has changed
   useEffect(() => {
     const changed = Object.keys(formData).some(key => 
       formData[key] !== originalData[key]
@@ -73,7 +71,6 @@ const EditItemScreen = ({ navigation, route }) => {
     if (!formData.item_id.trim()) {
       newErrors.item_id = 'Item ID is required';
     } else {
-      // Check if item ID contains only valid characters
       const itemIdRegex = /^[A-Za-z0-9\-_]+$/;
       if (!itemIdRegex.test(formData.item_id.trim())) {
         newErrors.item_id = 'Item ID can only contain letters, numbers, hyphens, and underscores';
@@ -91,12 +88,10 @@ const EditItemScreen = ({ navigation, route }) => {
     if (!formData.manufacture_date.trim()) {
       newErrors.manufacture_date = 'Manufacture date is required';
     } else {
-      // Validate date format (YYYY-MM-DD)
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
       if (!dateRegex.test(formData.manufacture_date)) {
         newErrors.manufacture_date = 'Date must be in YYYY-MM-DD format';
       } else {
-        // Check if date is valid and not in the future
         const manufactureDate = new Date(formData.manufacture_date);
         const today = new Date();
         today.setHours(23, 59, 59, 999);
@@ -108,8 +103,6 @@ const EditItemScreen = ({ navigation, route }) => {
         }
       }
     }
-
-    // Categories and subcategories validation (optional fields)
     if (formData.categories && formData.categories.trim().length > 100) {
       newErrors.categories = 'Categories must be 100 characters or less';
     }
@@ -128,7 +121,6 @@ const EditItemScreen = ({ navigation, route }) => {
       [field]: value
     }));
     
-    // Clear error when user starts typing
     if (errors[field]) {
       setErrors(prev => ({
         ...prev,
@@ -137,7 +129,6 @@ const EditItemScreen = ({ navigation, route }) => {
     }
   };
 
-  // New function to handle image selection
   const pickImage = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -151,8 +142,7 @@ const EditItemScreen = ({ navigation, route }) => {
         const imageUri = result.assets[0].uri;
         setSelectedImage(imageUri);
         setImageChanged(true);
-        
-        // Clear any image_url errors
+
         if (errors.image_url) {
           setErrors(prev => ({
             ...prev,
@@ -166,7 +156,7 @@ const EditItemScreen = ({ navigation, route }) => {
     }
   };
 
-  // Function to remove selected image
+
   const removeImage = () => {
     setSelectedImage(null);
     setImageChanged(true);
@@ -181,7 +171,7 @@ const EditItemScreen = ({ navigation, route }) => {
     setLoading(true);
 
     try {
-      // Prepare the update data with trimmed values
+
       const updateData = {
         title: formData.title.trim(),
         item_id: formData.item_id.trim(),
@@ -192,17 +182,13 @@ const EditItemScreen = ({ navigation, route }) => {
         subcategories: formData.subcategories.trim(),
       };
 
-      // Handle image update
       if (imageChanged) {
         if (selectedImage) {
-          // New image selected - pass the local URI to inventoryService
           updateData.imageUrl = selectedImage;
         } else {
-          // Image removed - set to empty string to clear it
           updateData.image_url = '';
         }
       } else if (formData.image_url !== originalData.image_url) {
-        // Image URL was manually edited (though this is less common)
         updateData.image_url = formData.image_url.trim();
       }
 
@@ -286,7 +272,6 @@ const EditItemScreen = ({ navigation, route }) => {
     }
   };
 
-  // Handle back button press
   React.useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (e) => {
       if (!hasChanges) {
@@ -312,7 +297,6 @@ const EditItemScreen = ({ navigation, route }) => {
     return unsubscribe;
   }, [navigation, hasChanges]);
 
-  // Determine which image to display
   const displayImage = selectedImage || formData.image_url || item?.image_url;
 
   return (
@@ -390,9 +374,9 @@ const EditItemScreen = ({ navigation, route }) => {
             </TouchableOpacity>
           </View>
 
-          {/* Form Fields */}
+          {}
           <View style={styles.formContainer}>
-            {/* Title */}
+            {}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Title *</Text>
               <TextInput

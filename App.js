@@ -10,8 +10,10 @@ import InventoryScreen from './src/screens/InventoryScreen';
 import AddItemScreen from './src/screens/AddItemScreen';
 import EditItemScreen from './src/screens/EditItemScreen';
 import StatisticsScreen from './src/screens/StatisticsScreen';
+import ManageCategoriesScreen from './src/screens/CategoryScreen';
 
-// 1. Setup SecureStore caching
+
+// Setup SecureStore caching
 const tokenCache = {
   async getToken(key) {
     try {
@@ -29,10 +31,10 @@ const tokenCache = {
   },
 };
 
-// 2. Stack Navigator
+// Stack Navigator
 const Stack = createNativeStackNavigator();
 
-// 3. App wrapped in ClerkProvider
+// App wrapped in ClerkProvider
 export default function App() {
   return (
     <ClerkProvider tokenCache={tokenCache} publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY}>
@@ -42,6 +44,7 @@ export default function App() {
           <Stack.Screen name="Inventory" component={InventoryScreen} />
           <Stack.Screen name="AddItem" component={AddItemScreen} />
           <Stack.Screen name="EditItem" component={EditItemScreen} />
+          <Stack.Screen name="ManageCategories" component={ManageCategoriesScreen} options={{ title: 'Manage Categories' }} />
           <Stack.Screen name="Statistics" component={StatisticsScreen} options={{ headerShown: false }} />
         </Stack.Navigator>
       </NavigationContainer>

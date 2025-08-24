@@ -1,22 +1,32 @@
-// src/api/vision/parse.js
+const { extractItemData } = require('../utils/Gemini');
 
 /**
- * Dummy parser for now.
- * It receives an image buffer (from multer) and returns a fake label.
- * Replace this later with real ML / OCR / Vision API logic.
- *
  * @param {Buffer} buffer
- * @returns {Promise<{ label: string, confidence: number }>}
+ * @param {string} mimeType
+ * @param {string} optionalText
  */
-async function parseImageLabel(buffer) {
+async function parseImageLabel(buffer, mimeType = 'image/jpeg', optionalText = '') {
   if (!buffer || !Buffer.isBuffer(buffer)) {
     throw new Error('Invalid image buffer');
   }
 
-  // For now, just return a mock response
+  const base64 = buffer.toString('base64');
+
+  let out = {};
+  try {
+    out = await extractItemData(base64, optionalText);
+  } catch (e) {
+    console.warn('Gemini parse failed, returning empty fields:', e.message);
+    out = {};
+  }
   return {
-    label: "Uncategorized Item",
-    confidence: 0.5,
+    item_id: out.item_id || '',
+    title: out.title || '',
+    description: out.description || '',
+    vendor: out.vendor || '',
+    manufacture_date: out.manufacture_date || '',
+    categories: out.categories || '',
+    subcategories: out.subcategories || '',
   };
 }
 
